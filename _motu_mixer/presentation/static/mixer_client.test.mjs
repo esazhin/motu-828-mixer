@@ -50,7 +50,9 @@ function stateMessage({ fader = {}, status = 'synced' } = {}) {
 function recordingClient() {
   const sent = [];
   const renders = [];
-  const client = createMixerClient({ send: (m) => sent.push(m), render: (v) => renders.push(v) });
+  // nothing collapsed, so these tests see every strip (group collapsing has its own tests below)
+  const storage = { getItem: () => '', setItem() {} };
+  const client = createMixerClient({ send: (m) => sent.push(m), render: (v) => renders.push(v), storage });
   return { client, sent, renders, view: () => renders.at(-1) };
 }
 
@@ -441,4 +443,59 @@ test('a linked bus pair opens its first slot, as CueMix does', () => {
   client.receive(state);
   client.gesture({ type: 'select_tab', control: 'tab:3' });
   assert.equal(view().master.eq.control, 'eq:out:2');
+});
+
+// ---- collapsible groups ----
+function groupState() {
+  const state = stateMessage();
+  state.layout.strips = [
+    { label: 'Line 3', input: 2 }, { label: 'ADAT A 1', input: 12 }, { label: 'ADAT A 2', input: 13 },
+    { label: 'ADAT B 8', input: 27 }, { label: 'Computer 1-2', input: 28 }, { label: 'Computer 3', input: 30 },
+    { label: 'Reverb L-R', input: 42 },
+  ];
+  return state;
+}
+
+function memoryStorage(initial = {}) {
+  const data = { ...initial };
+  return { data, getItem: (k) => (k in data ? data[k] : null), setItem: (k, v) => { data[k] = String(v); } };
+}
+
+test('ADAT and Computer strips start collapsed behind a group tab at the place they would start', () => {
+  const renders = [];
+  const client = createMixerClient({ send() {}, render: (v) => renders.push(v), storage: memoryStorage() });
+  client.receive(groupState());
+  const v = renders.at(-1);
+  assert.deepEqual(v.strips.map((s) => s.label), ['Line 3', 'Reverb L-R']);
+  assert.deepEqual(v.groupHeads, [
+    { key: 'adat', label: 'ADAT', count: 3, collapsed: true, control: 'group:adat', before: 1 },
+    { key: 'computer', label: 'Computer', count: 2, collapsed: true, control: 'group:computer', before: 1 },
+  ]);
+});
+
+test('toggling a group shows its strips in place, and the choice is remembered across pages', () => {
+  const storage = memoryStorage();
+  const renders = [];
+  const client = createMixerClient({ send() {}, render: (v) => renders.push(v), storage });
+  client.receive(groupState());
+  client.gesture({ type: 'toggle_group', control: 'group:adat' });
+  let v = renders.at(-1);
+  assert.deepEqual(v.strips.map((s) => s.label), ['Line 3', 'ADAT A 1', 'ADAT A 2', 'ADAT B 8', 'Reverb L-R']);
+  assert.deepEqual(v.groupHeads.map((g) => [g.key, g.collapsed, g.before]), [['adat', false, 1], ['computer', true, 4]]);
+  assert.equal(storage.data['motu-mixer:collapsed'], 'computer');
+
+  // a fresh page with the same storage starts with ADAT open
+  const later = [];
+  const again = createMixerClient({ send() {}, render: (x) => later.push(x), storage });
+  again.receive(groupState());
+  assert.deepEqual(later.at(-1).groupHeads.map((g) => g.collapsed), [false, true]);
+});
+
+test('a storage that throws (private mode) falls back to the defaults', () => {
+  const broken = { getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); } };
+  const renders = [];
+  const client = createMixerClient({ send() {}, render: (v) => renders.push(v), storage: broken });
+  client.receive(groupState());
+  client.gesture({ type: 'toggle_group', control: 'group:computer' });
+  assert.deepEqual(renders.at(-1).groupHeads.map((g) => g.collapsed), [true, false]);
 });

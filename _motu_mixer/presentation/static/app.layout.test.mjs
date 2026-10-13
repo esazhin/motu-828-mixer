@@ -120,3 +120,34 @@ test('opening the page at #routing selects the Routing tab', () => {
   });
   assert.deepEqual(gestures, [{ type: 'select_tab', control: 'tab:routing' }]);
 });
+
+test('group tabs sit among the strips where each group starts, and a click toggles that group', () => {
+  const document = fakeDocument();
+  const gestures = [];
+  let storageSeen;
+  FakeSocket.opened = [];
+  startApp({
+    document, WebSocket: FakeSocket, setTimeout() {}, location: PAGE_LOCATION, storage: { getItem: () => null, setItem() {} },
+    createClient: ({ render, storage }) => {
+      storageSeen = storage;
+      return {
+        gesture(g) { gestures.push(g); },
+        receive() {
+          render({ ...view(), groupHeads: [
+            { key: 'adat', label: 'ADAT', count: 16, collapsed: true, control: 'group:adat', before: 1 },
+            { key: 'computer', label: 'Computer', count: 14, collapsed: false, control: 'group:computer', before: 2 },
+          ] });
+        },
+      };
+    },
+  });
+  FakeSocket.opened.at(-1).emit('message', { data: JSON.stringify({ type: 'state' }) });
+  assert.ok(storageSeen && typeof storageSeen.getItem === 'function', 'the client is given the browser storage');
+  const row = document.getElementById('strips').children.map((n) => n.getAttribute('class').split(' ').slice(0, 2).join(' '));
+  assert.deepEqual(row, ['strip', 'group-tab collapsed', 'strip', 'group-tab', 'strip master']);
+  const adat = find(document, 'group:adat');
+  assert.match(adat.textContent, /ADAT/);
+  assert.match(adat.textContent, /16/);
+  fire(adat, 'click');
+  assert.deepEqual(gestures, [{ type: 'toggle_group', control: 'group:adat' }]);
+});

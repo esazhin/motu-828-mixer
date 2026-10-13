@@ -13,7 +13,11 @@ const FIELD_FORMAT = {
   q: (v) => Number(v.toFixed(2)),
 };   // EQ graph: 20 Hz-20 kHz (log) x +/-24 dB   // a second press on the same fader or pan this soon resets it (0 dB / centre)
 
-export function startApp({ document, WebSocket, setTimeout, location, createClient = createMixerClient }) {
+function browserStorage() {
+  try { return globalThis.localStorage ?? null; } catch { return null; }   // blocked storage throws on access
+}
+
+export function startApp({ document, WebSocket, setTimeout, location, createClient = createMixerClient, storage = browserStorage() }) {
   const status = document.getElementById('status');
   const tabs = document.getElementById('tabs');
   const strips = document.getElementById('strips');
@@ -37,6 +41,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     },
     render: draw,
     renderMeters,
+    storage,
   });
 
   function svg(tag, attributes) {
@@ -283,7 +288,17 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
       return node;
     }));
     document.body.setAttribute('data-mode', view.mode ?? 'mixer');
-    strips.replaceChildren(...view.strips.map((spec) => strip(spec, 'strip', view.controlsEnabled, view.panRow)));
+    const columns = view.strips.map((spec) => strip(spec, 'strip', view.controlsEnabled, view.panRow));
+    // each foldable group's tab goes where the group starts; later tabs first so earlier positions stay valid
+    for (const head of [...(view.groupHeads ?? [])].reverse()) {
+      const tab = element('button', head.collapsed ? 'group-tab collapsed' : 'group-tab',
+        head.collapsed ? `+ ${head.label} ${head.count}` : `− ${head.label}`);
+      tab.setAttribute('data-control', head.control);
+      tab.setAttribute('data-gesture', 'toggle_group');
+      tab.setAttribute('title', head.collapsed ? `Show ${head.count} ${head.label} channels` : `Hide ${head.label} channels`);
+      columns.splice(head.before, 0, tab);
+    }
+    strips.replaceChildren(...columns);
     if (view.master) strips.append(strip(view.master, 'strip master', view.controlsEnabled, view.panRow));
     routing.replaceChildren(...routeSections(view.routing, view.controlsEnabled));
     document.body.setAttribute('data-eq', view.eq ? 'open' : 'closed');
@@ -365,6 +380,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (gesture === 'toggle') client.gesture({ type: 'toggle', control, value: node.getAttribute('data-on') !== '1' });
     if (gesture === 'select_tab') client.gesture({ type: 'select_tab', control });
     if (gesture === 'open_eq') client.gesture({ type: 'open_eq', control });
+    if (gesture === 'toggle_group') client.gesture({ type: 'toggle_group', control });
     if (gesture === 'close_eq') client.gesture({ type: 'close_eq' });
     if (gesture === 'eq_toggle') client.gesture({ type: 'eq_set', control, value: node.getAttribute('data-on') === '1' });
   });

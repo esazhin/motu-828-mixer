@@ -89,6 +89,21 @@ function eqValue(field, value) {
   return Number(value);
 }
 
+// Strip groups that fold away to save width; collapsed by default, remembered per browser.
+const STRIP_GROUPS = [
+  { key: 'adat', label: 'ADAT', from: 12, to: 27 },
+  { key: 'computer', label: 'Computer', from: 28, to: 41 },
+];
+const COLLAPSED_KEY = 'motu-mixer:collapsed';
+
+function loadCollapsed(storage) {
+  let saved = null;
+  try { saved = storage ? storage.getItem(COLLAPSED_KEY) : null; } catch { saved = null; }
+  return new Set(saved === null || saved === undefined ? STRIP_GROUPS.map((g) => g.key) : String(saved).split(',').filter(Boolean));
+}
+
+const groupOf = (input) => STRIP_GROUPS.find((g) => input >= g.from && input <= g.to) ?? null;
+
 const DELTA_TARGETS = {
   fader: (s) => s.cells.fader,
   pan: (s) => s.cells.pan,
@@ -103,7 +118,8 @@ const DELTA_TARGETS = {
     EQ_FIELDS.map((field) => [`${prefix}_eq_${field}`, (s) => s.eq?.[layout.key][field]]))),
 };
 
-export function createMixerClient({ send, render, renderMeters = null }) {
+export function createMixerClient({ send, render, renderMeters = null, storage = null }) {
+  const collapsed = loadCollapsed(storage);
   let server = null;
   let meters = null;
   let status = null;
@@ -274,7 +290,18 @@ export function createMixerClient({ send, render, renderMeters = null }) {
     if (routingSelected) {
       return { ...base, mode: 'routing', panRow: false, tabs, strips: [], master: null, routing: routingView(), eq: null };
     }
-    const strips = server.layout.strips.map((strip) => {
+    const allStrips = server.layout.strips;
+    const visible = allStrips.filter((strip) => !collapsed.has(groupOf(strip.input)?.key));
+    const groupHeads = STRIP_GROUPS
+      .map((g) => {
+        const members = allStrips.filter((strip) => groupOf(strip.input) === g);
+        if (!members.length) return null;
+        const first = allStrips.indexOf(members[0]);
+        const before = allStrips.slice(0, first).filter((strip) => visible.includes(strip)).length;
+        return { key: g.key, label: g.label, count: members.length, collapsed: collapsed.has(g.key), control: `group:${g.key}`, before };
+      })
+      .filter(Boolean);
+    const strips = visible.map((strip) => {
       const input = strip.input;
       const cell = bus * 44 + input;
       return {
@@ -296,6 +323,7 @@ export function createMixerClient({ send, render, renderMeters = null }) {
       panRow: Boolean(tab.stereo),
       tabs,
       strips,
+      groupHeads,
       master: {
         label: tab.label,
         fader: { ...faderView(`master:${bus}`, server.bus_master.fader[bus]), meter: meterView(meters?.buses[bus]) },
@@ -358,6 +386,13 @@ export function createMixerClient({ send, render, renderMeters = null }) {
     }
     if (g.type === 'release') {
       held.delete(g.control);
+      return null;
+    }
+    if (g.type === 'toggle_group' && kind === 'group') {
+      const key = rest[0];
+      if (collapsed.has(key)) collapsed.delete(key);
+      else collapsed.add(key);
+      try { storage?.setItem(COLLAPSED_KEY, [...collapsed].join(',')); } catch { /* private mode: keep it for this page */ }
       return null;
     }
     if (g.type === 'open_eq' && kind === 'eq') {
