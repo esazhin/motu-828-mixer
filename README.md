@@ -8,7 +8,8 @@ owns the 828's control port and serves one page on your LAN, so you can mix from
 
 MOTU's CueMix 5 runs only on macOS, Windows and iOS, and the unofficial Linux build from 2024 was never updated. The
 828's control protocol was recovered from CueMix's own (readable) JavaScript and checked against a real unit. It is
-documented in [PROTOCOL-SPEC.md](PROTOCOL-SPEC.md).
+documented in [PROTOCOL-SPEC.md](PROTOCOL-SPEC.md). The design contract the first version was built against is
+in [docs/delivery-contract.md](docs/delivery-contract.md).
 
 > **Not affiliated with or endorsed by MOTU.** Verified only on 828 firmware **1.1.8 (datastore API 9)**. On any
 > other model or API version the service runs **read-only** and says why.
