@@ -1,0 +1,12 @@
+[Desktop Entry]
+# Desktop / dock launcher. Install:
+#   ln -s "$PWD/scripts/motu-mixer-start" ~/.local/bin/motu-mixer-start
+#   cp deploy/motu-mixer.desktop ~/.local/share/applications/    (and/or ~/Desktop/, then mark it trusted)
+Type=Application
+Name=MOTU 828 Mixer
+Comment=Start the MOTU 828 web mixer and open it in the browser
+Exec=motu-mixer-start
+Icon=audio-card
+Terminal=false
+Categories=AudioVideo;Audio;Mixer;
+StartupNotify=false

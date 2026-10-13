@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "motu-mixer"
+version = "0.1.0"
+description = "LAN web mixer for the MOTU 828 on Linux"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+requires-python = ">=3.14"
+dependencies = ["fastapi", "uvicorn", "websockets"]
+
+[project.optional-dependencies]
+dev = ["pytest", "httpx"]
+
+[tool.setuptools.packages.find]
+include = ["_motu_mixer*"]
+
+[tool.pytest.ini_options]
+testpaths = ["_motu_mixer"]
+markers = ["live: needs the real 828 (MOTU_LIVE=1)"]
+addopts = "-m 'not live'"

@@ -1,0 +1,16 @@
+# systemd user unit for the MOTU 828 mixer service.
+# Install: copy to ~/.config/systemd/user/, replace <repo> with the repository's absolute path, then
+#   systemctl --user daemon-reload && systemctl --user enable --now motu-mixer
+[Unit]
+Description=MOTU 828 mixer (web control, default port 8280)
+
+[Service]
+WorkingDirectory=<repo>
+# optional machine-specific settings (KEY=VALUE); the leading '-' means a missing file is fine
+EnvironmentFile=-<repo>/config.local
+ExecStart="<repo>/.venv/bin/python" -m _motu_mixer
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

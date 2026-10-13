@@ -1,0 +1,19 @@
+MOTU 828 Mixer for Linux
+Copyright 2026 esazhin and contributors
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This project is not affiliated with, endorsed by or sponsored by MOTU, Inc. "MOTU", "828" and "CueMix" are
+trademarks of their respective owners, used here only to identify the hardware and software this project
+interoperates with.
+
+Portions derive from MOTU CueMix 5 (com.motu.CueMix5 / motucuemix5, JavaScript sources whose package.json
+declares "license": "Apache-2.0", author "MOTU, Inc."):
+
+  - _motu_mixer/presentation/static/eq_math.js: the EQ coefficient and response math, ported from equi.js
+    (EQBand.CalculateCoeff, EQBand.GenerateCurve).
+  - The protocol framing, the 7-bit packing, the value types, the property identifiers and table sizes, the
+    routing address map and the meter index table documented in PROTOCOL-SPEC.md and used in _motu_mixer/
+    (from midi.js, datastore.js, dev_common.js, dev_828.js, mixmgr.js, meterstore.js).
+
+No CueMix source files are redistributed in this repository.

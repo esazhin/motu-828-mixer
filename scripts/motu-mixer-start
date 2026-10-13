@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Start the MOTU 828 mixer service (if it isn't already running) and open it in the browser.
+#   - already up on its port      -> just open the browser
+#   - systemd user unit installed -> systemctl --user start motu-mixer
+#   - otherwise                   -> run `.venv/bin/python -m _motu_mixer` in the background, log to ~/.local/state
+# Waits until the page answers (and, when the 828 is attached, until it reports 'synced'), then opens the URL.
+# Errors go to a desktop notification, so it also works from the desktop icon with no terminal.
+set -u
+
+REPO="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+
+# Machine-specific settings live in the git-ignored config.local (KEY=VALUE, see config.local.example).
+# Variables already set in the environment win over the file, as they do for the service itself.
+load_local_config() {
+    local file="$1" key value
+    [ -f "$file" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line#"${line%%[![:space:]]*}"}"
+        case "$line" in ''|'#'*) continue ;; *=*) ;; *) continue ;; esac
+        key="${line%%=*}"; key="${key%"${key##*[![:space:]]}"}"
+        value="${line#*=}"; value="${value#"${value%%[![:space:]]*}"}"; value="${value%"${value##*[![:space:]]}"}"
+        case "$value" in \"*\") value="${value:1:${#value}-2}" ;; \'*\') value="${value:1:${#value}-2}" ;; esac
+        [ -z "${!key+set}" ] && export "$key=$value"
+    done < "$file"
+}
+load_local_config "${MOTU_CONFIG:-$REPO/config.local}"
+
+PORT="${MOTU_HTTP_PORT:-8280}"
+URL="http://localhost:${PORT}/"                  # health checks always go to this machine
+OPEN_URL="${MOTU_OPEN_URL:-$URL}"                # what the browser opens (e.g. http://myhost:8280/)
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/motu-mixer"
+LOG="$LOG_DIR/service.log"
+
+notify() {  # notify <urgency> <message>
+    if command -v notify-send >/dev/null 2>&1; then
+        notify-send -u "$1" -i audio-card "MOTU 828 mixer" "$2"
+    fi
+    echo "motu-mixer: $2" >&2
+}
+
+up() { curl -fs -o /dev/null --max-time 1 "${URL}api/state"; }
+
+status() { curl -fs --max-time 1 "${URL}api/state" | sed -n 's/.*"status": *"\([a-z_]*\)".*/\1/p'; }
+
+if ! up; then
+    if systemctl --user cat motu-mixer.service >/dev/null 2>&1; then
+        systemctl --user start motu-mixer.service || { notify critical "systemctl --user start motu-mixer failed"; exit 1; }
+    else
+        if [ ! -x "$REPO/.venv/bin/python" ]; then
+            notify critical "No .venv in $REPO. Install first (see README: uv venv + uv pip install -e .)"
+            exit 1
+        fi
+        mkdir -p "$LOG_DIR"
+        cd "$REPO" || exit 1
+        setsid nohup "$REPO/.venv/bin/python" -m _motu_mixer >>"$LOG" 2>&1 </dev/null &
+    fi
+    for _ in $(seq 1 30); do up && break; sleep 0.5; done
+    if ! up; then
+        notify critical "The mixer did not start on port $PORT. Log: $LOG"
+        exit 1
+    fi
+fi
+
+# Give the unit a moment to sync. The page also shows syncing / no 828 / busy on its own, so this is only
+# to avoid opening on a half-loaded mixer; never block for long.
+for _ in $(seq 1 20); do
+    s="$(status)"
+    [ "$s" = "synced" ] || [ "$s" = "read_only" ] || [ "$s" = "no_device" ] || [ "$s" = "busy" ] && break
+    sleep 0.5
+done
+case "$(status)" in
+    no_device) notify normal "Mixer is running, but no 828 is connected." ;;
+    busy)      notify normal "Mixer is running, but the 828's control port is busy (CueMix or another tool?)." ;;
+esac
+
+xdg-open "$OPEN_URL" >/dev/null 2>&1 &

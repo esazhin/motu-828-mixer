@@ -1,0 +1,11 @@
+# Copy to config.local (git-ignored) and adjust for your machine.
+# Read by the service (python -m _motu_mixer), scripts/motu-mixer-start and the systemd unit (EnvironmentFile).
+# Plain KEY=VALUE lines; real environment variables override this file.
+
+# ALSA rawmidi port of the 828's control channel, as `amidi -l` lists it (never a card number)
+MOTU_PORT_NAME=828 COM
+# address and port the web page and WebSocket listen on
+MOTU_HTTP_HOST=0.0.0.0
+MOTU_HTTP_PORT=8280
+# the URL the launcher opens in the browser (defaults to http://localhost:$MOTU_HTTP_PORT/)
+#MOTU_OPEN_URL=http://my-audio-pc:8280/
