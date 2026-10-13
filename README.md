@@ -3,8 +3,7 @@
 A web-based mixer for the **MOTU 828** (the 2023/2024 USB-C model) on Linux, without CueMix. A small Python service
 owns the 828's control port and serves one page on your LAN, so you can mix from any browser: desktop, phone or tablet.
 
-<img width="1728" height="857" alt="image" src="https://github.com/user-attachments/assets/6d502e72-5df9-45e4-bf2e-48f3ab7677e6" />
-
+![The mixer: Main 1-2 with live meters, the ADAT and Computer groups folded](docs/screenshot.png)
 
 MOTU's CueMix 5 runs only on macOS, Windows and iOS, and the unofficial Linux build from 2024 was never updated. The
 828's control protocol was recovered from CueMix's own (readable) JavaScript and checked against a real unit. It is
