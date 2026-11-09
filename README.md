@@ -29,13 +29,21 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
   the Inputs tab is shown.
 - **Monitor chain** (`Chain` on the Main 1-2 master, or `/#chain`): room correction with more than three bands.
   The Main mix is carried through up to four Ana bus pairs before the Main jacks, each adding its own 3-band EQ,
-  at one sample of latency per stage (measured). The chain window lists the stages, lets you add or remove them
-  (the default first stage is Ana 5-6 carried by ADAT B 7-8), and shows the combined EQ of every stage on one
-  graph. Save the chain and the EQ of every stage as a named preset (per browser); loading one writes the EQ back
-  and switches the chain on, and the Main master's `Chain` button names the preset while the unit still matches it.
-  While on, the carrier is soloed on its stage, so anything else that bus pair mixes stays silent and comes back
-  untouched when the chain is off. Off hands every borrowed bus and input back to the hardware. The reverb return
-  is never borrowed: the built-in reverb is applied on its path. See [docs/monitor-chain.md](docs/monitor-chain.md).
+  at under one sample of latency per stage (measured, W8). Off hands every borrowed bus and input back to the
+  hardware. See [docs/monitor-chain.md](docs/monitor-chain.md).
+  - **Chain window:** the stages in order with the input pair that carries each, and what feeds the Main jacks
+    right now. A picker adds a stage and says what each free pair takes over (the outputs it feeds, how many live
+    inputs it would solo out); each stage has a remove button and opens its own EQ panel. A change while the chain
+    is on rebuilds it on the unit, and whatever the previous chain borrowed is handed back first.
+  - **Combined EQ:** every stage's bands on one graph, coloured by stage, with band cards grouped by stage; each
+    card edits its own bus. Six bands with one stage, nine with two, up to fifteen.
+  - **Presets:** save the stages and every band of Main and of each stage under a name (kept in the browser).
+    Load writes the bands back and switches the chain on with the preset's stages; Delete forgets one. The window
+    names the preset while the unit still matches it, marked edited once a band or stage differs, and the `Chain`
+    button's tooltip says the same.
+  - **While on,** the carrier is soloed on its stage, so anything else that bus pair mixes stays silent and comes
+    back untouched when the chain is off. The reverb return is never borrowed: the built-in reverb is applied on
+    its path.
 - Double-click a fader or master to set 0 dB, a pan to centre it, or an EQ point to zero its band.
 - Any browser on your network; no login, no build step.
 
