@@ -514,21 +514,25 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (!view.confirm) confirmRemember = null;
     confirmHost.replaceChildren(...(view.confirm ? [confirmPanel(view.confirm)] : []));
     document.body.setAttribute('data-eq', view.eq ? 'open' : 'closed');
-    replacePanel(eqHost, view.eq ? eqPanel(view.eq, view.controlsEnabled) : null);
+    replacePanel(eqHost, view.eq ? () => eqPanel(view.eq, view.controlsEnabled) : null);
     document.body.setAttribute('data-chain', view.chain ? 'open' : 'closed');
     if (!view.chain) { chainPicks = null; chainPresetRefs = null; }
-    replacePanel(chainHost, view.chain ? chainPanel(view.chain, view.controlsEnabled) : null);
+    replacePanel(chainHost, view.chain ? () => chainPanel(view.chain, view.controlsEnabled) : null);
     const showingInputs = view.mode === 'inputs';
     if (showingInputs && !inputsShown) { inputsShown = true; if (!refreshing) { refreshing = true; refreshInputs(); } }
     if (!showingInputs) inputsShown = false;
     if (drag && !drag.element.hasPointerCapture(drag.pointerId)) drag.element.setPointerCapture(drag.pointerId);
   }
 
-  // The overlay's panel is the scroll container: a redraw fills the same node, so it stays where it was scrolled.
-  // The clicked button has focus, and Chrome scrolls the panel when a focused child is removed, so it is blurred
-  // first and its successor (the same control in the new content) focused again without scrolling.
-  function replacePanel(host, panel) {
+  // The overlay's panel is the scroll container: a redraw fills the same node and puts the scroll position back.
+  // The position is read before the new content is built, because building it moves the shared EQ graph out of the
+  // live panel, which shrinks and lets Chrome clamp the scroll if a layout lands in between. The clicked button has
+  // focus, and Chrome also scrolls when a focused child is removed, so it is blurred first and its successor (the
+  // same control in the new content) focused again without scrolling.
+  function replacePanel(host, build) {
     const current = host.children[0];
+    const top = current ? current.scrollTop || 0 : 0;
+    const panel = build ? build() : null;
     if (!panel || !current) {
       host.replaceChildren(...(panel ? [panel] : []));
       return;
@@ -538,6 +542,10 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (focused && typeof active.blur === 'function') active.blur();
     current.setAttribute('class', panel.getAttribute('class'));
     current.replaceChildren(...panel.childNodes);
+    current.scrollTop = top;
+    if (typeof requestAnimationFrame === 'function') {
+      requestAnimationFrame(() => { if (host.children[0] === current && current.scrollTop !== top) current.scrollTop = top; });
+    }
     const successor = focused === null ? null : findControl(current, focused);
     if (successor && typeof successor.focus === 'function') successor.focus({ preventScroll: true });
   }

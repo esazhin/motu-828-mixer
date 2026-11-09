@@ -133,11 +133,14 @@ test('a redraw keeps the chain window where it was scrolled, and a second press 
   const host = document.getElementById('chain');
   const panel = host.children[0];
   panel.scrollTop = 240;
+  // Chrome clamps the scroll when the content shrinks mid-redraw (the shared graph moves out before the swap)
+  const remove = panel.removeChild.bind(panel);
+  panel.removeChild = (child) => { panel.scrollTop = 0; return remove(child); };
   const toggle = find(document, 'eqb:out:6:0:bypass');
   toggle.focus();                                   // a real click leaves the button focused
   fire(toggle, 'click');
-  assert.equal(host.children[0], panel, 'the same panel node is refilled, so the browser keeps its scroll position');
-  assert.equal(panel.scrollTop, 240);
+  assert.equal(host.children[0], panel, 'the same panel node is refilled');
+  assert.equal(panel.scrollTop, 240, 'and put back where it was scrolled, read before the new content was built');
   assert.notEqual(document.activeElement, toggle, 'the removed button was blurred before the refill (Chrome scrolls otherwise)');
   assert.equal(document.activeElement, find(document, 'eqb:out:6:0:bypass'), 'and its successor has the focus');
   assert.notEqual(document.activeElement, document.body);
