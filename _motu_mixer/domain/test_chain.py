@@ -5,7 +5,7 @@ from _motu_mixer.domain.loop_guard import Accepted, SpdifLoopGuard
 from _motu_mixer.domain.properties import PropertyId as P
 from _motu_mixer.domain.state import MixerState
 from _motu_mixer.domain.status import Refusal, RefusalKind
-from _motu_mixer.domain.values import Address, Gain, MixCell, Report, Source, Write
+from _motu_mixer.domain.values import Address, Gain, MixCell, OutputSlot, Report, Source, Write
 
 UNITY = (1 << 24).to_bytes(4, "big")
 LIVE_SLOTS = {   # the unit's mixer-input feeds and Main jacks on 2026-11-08
@@ -160,6 +160,32 @@ def test_a_stage_s_other_live_inputs_are_named_and_silenced_by_the_carrier_s_sol
     assert off[2] == Write(Address(P.MIX_SOLO, 8 * 44 + 40), False)
     assert not after.with_writes(off).soloed(MixCell(8, 40))
     assert all(after.with_writes(off).gain(MixCell(b, i)) == Gain(1.0) for b, i in ((8, 28), (9, 29), (8, 36), (9, 37))), "the stage's own mix is untouched"
+
+
+def test_a_stage_change_while_on_hands_back_what_the_previous_chain_borrowed():
+    # the user's case (2026-11-09): Main → ADAT A 1-2 → Ana 5-6 → ADAT A 7-8 → Ana 7-8 → jacks, then a one-stage preset loaded while on
+    two = unit(patch={88: 76, 89: 77, 94: 82, 95: 83, 37: 84, 39: 85}, faders=[(6, 12), (8, 18)], links=[12, 18], bus_links=[6, 8],
+               solos=[(6, 12), (8, 18)])
+    assert recognise(two) == ChainState(True, (Stage(ANA_5_6, 12), Stage(ANA_7_8, 18)))
+    writes = plan_on((Stage(ANA_7_8, 16),), two)
+    handed_back = [Write(Address(P.MIX_SOLO, 6 * 44 + 12), False), Write(Address(P.MIX_FADER, 6 * 44 + 12), Gain(0.0)),
+                   Write(Address(P.PATCH, 88), Source(60)), Write(Address(P.PATCH, 89), Source(61)),
+                   Write(Address(P.MIX_SOLO, 8 * 44 + 18), False), Write(Address(P.MIX_FADER, 8 * 44 + 18), Gain(0.0)),
+                   Write(Address(P.PATCH, 94), Source(70)), Write(Address(P.PATCH, 95), Source(71))]
+    assert [w for w in writes if w in handed_back] == handed_back, "both old carriers handed back, in order"
+    assert writes.index(handed_back[-1]) < writes.index(Write(Address(P.PATCH, 92), Source(76))), "before the new carrier is patched"
+    after = two.with_writes(writes)
+    assert recognise(after) == ChainState(True, (Stage(ANA_7_8, 16),))
+    assert all(after.source(OutputSlot(s)).code == native_source(s) for s in (88, 89, 94, 95))
+    assert not after.soloed(MixCell(8, 18)) and after.gain(MixCell(8, 18)).is_silent
+    assert isinstance(SpdifLoopGuard().check(two, after, writes), Accepted)
+    # off with no chain recognised but a carrier left behind hands it back; off with nothing to do is refused
+    residue = unit(patch={94: 82, 95: 83}, faders=[(8, 18)], solos=[(8, 18)], links=[18], bus_links=[8])
+    assert recognise(residue) == ChainState(False, ())
+    off = plan_off(residue)
+    assert off == (Write(Address(P.MIX_SOLO, 8 * 44 + 18), False), Write(Address(P.MIX_FADER, 8 * 44 + 18), Gain(0.0)),
+                   Write(Address(P.PATCH, 94), Source(70)), Write(Address(P.PATCH, 95), Source(71)))
+    assert isinstance(plan_off(unit()), Refusal)
 
 
 def test_a_carrier_live_on_its_own_source_bus_is_a_cycle_the_guard_refuses_and_reports():

@@ -49,6 +49,10 @@ One atomic action, planned fully before anything is sent, refused as a whole if 
 
 1. Link each stage pair (koMixStereo) and each carrier pair (kiMixStereo) if not already linked.
 2. Silence each carrier (−∞) on **every bus but its own stage**, so the mix it is about to carry cannot feed back.
+   Then hand back every carrier pair an earlier chain borrowed (slots not at their native source) that this chain
+   does not use: unsoloed, silent, slots native. A preset loaded while on, or a stage removed, therefore leaves the
+   unit wired exactly as the window shows (fixed 2026-11-09: before this, the dropped stage stayed wired and
+   recognition kept showing it until off).
 3. Patch carrier n's two slots (`76 + input`) to stage n−1's mix outputs (`76 + bus`, `77 + bus`).
 4. On stage n: carrier n at 0 dB (the pair's primary cell, §4.5), unmuted, **soloed** (so the stage pair's own
    mix, whatever it carries today, is silent while the chain is on); stage n's master at 0 dB, unmuted.
@@ -57,6 +61,7 @@ One atomic action, planned fully before anything is sent, refused as a whole if 
 Order matters for silence: silence, patches, levels, then the jacks last, so the monitors never hear a half-built
 chain and no carrier ever carries a mix it is live on. Switching off reverses the order: jacks first (back to
 76/77), carriers unsoloed and to −∞ on their stage, carrier slots back to native, links left as they were found.
+Off also hands back any borrowed pair it finds that no recognised chain uses, so it repairs a half-built state.
 The solo is why a stage's own mix needs no stored state: its faders are never touched.
 
 ### 2.3 Guards

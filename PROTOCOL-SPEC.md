@@ -241,7 +241,9 @@ Switching off returns every touched slot to its **native source** (the table abo
 stored. On: links, carrier silenced on every other bus, carrier patches, stage levels, jacks last. The feedback
 guard refuses any bus whose mix reaches a mixer input live on that same bus. The carrier is **soloed** on its stage
 pair (kiMixSolo on the primary cell), so whatever else that pair mixes today is silent while the chain is on and
-back untouched when it is off.
+back untouched when it is off. A borrowed pair is recognised by its slots alone (not at their native source), so a
+switch-on with a different stage list hands back what the previous chain used before it builds, and off hands back
+anything left behind even when no chain is recognised [LIVE 2026-11-09].
 
 **[LIVE] W8 (2026-11-08/09), three findings.** (1) Switched on by the user with the reverb return (slots 118/119)
 as the carrier, the chain was audible on the Main jacks **with the built-in reverb applied**: slots 118/119 feed

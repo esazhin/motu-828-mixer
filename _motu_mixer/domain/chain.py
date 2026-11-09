@@ -144,8 +144,39 @@ def _patch(state, slot: int, code: int, writes):
         writes.append(Write(Address(P.PATCH, slot), Source(code)))
 
 
+def _borrowed(state, keep=()) -> tuple[int, ...]:
+    """Carrier pairs whose slots a chain has patched (not at their native source) and that `keep` does not use."""
+    out = []
+    for i in CARRIER_INPUTS:
+        if i in keep:
+            continue
+        for side in (0, 1):
+            slot = _MIXER_INPUT_BASE + i + side
+            source = state.source(OutputSlot(slot))
+            if source is not None and source.code != native_source(slot):
+                out.append(i)
+                break
+    return tuple(out)
+
+
+def _hand_back(state, carrier: int, writes):
+    """A borrowed pair goes back to the hardware: unsoloed and silent wherever a chain left it live, slots native."""
+    for bus in range(16):
+        for inp in (carrier, carrier + 1):
+            cell = MixCell(bus, inp)
+            if state.soloed(cell):
+                writes.append(Write(Address(P.MIX_SOLO, cell.index), False))
+            gain = state.gain(cell)
+            if gain is not None and not gain.is_silent:
+                writes.append(Write(Address(P.MIX_FADER, cell.index), Gain(0.0)))
+    for side in (0, 1):
+        slot = _MIXER_INPUT_BASE + carrier + side
+        _patch(state, slot, native_source(slot), writes)
+
+
 def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
-    """The ordered writes that build the chain: links, carriers silenced elsewhere, patches, stage levels, jacks last.
+    """The ordered writes that build the chain: links, carriers silenced elsewhere, what an earlier chain borrowed and
+    this one does not use handed back, patches, stage levels, jacks last.
 
     The carrier is soloed on its stage, so whatever else the stage pair mixes today stays silent while the chain is
     on and comes back untouched when it is off (W8: Ana 7-8 carrying Computer 1-2 as well doubled the music, +6 dB)."""
@@ -169,6 +200,9 @@ def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
                 gain = state.gain(MixCell(bus, inp))
                 if gain is not None and not gain.is_silent:
                     writes.append(Write(Address(P.MIX_FADER, MixCell(bus, inp).index), Gain(0.0)))
+    # a stage change (a preset loaded while on, a stage removed) must not leave the previous chain's carriers behind
+    for carrier in _borrowed(state, keep={s.carrier for s in stages}):
+        _hand_back(state, carrier, writes)
     previous = MAIN_BUS
     for stage in stages:
         for side in (0, 1):
@@ -192,23 +226,16 @@ def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
 
 
 def plan_off(state) -> tuple[Write, ...] | Refusal:
-    """The ordered writes that hand everything back: jacks first, then each stage's carrier unsoloed, silenced, unpatched."""
+    """The ordered writes that hand everything back: jacks first, then every borrowed carrier (the recognised chain's,
+    last stage first, and anything an earlier chain left behind) unsoloed, silenced and unpatched."""
     chain = recognise(state)
-    if not chain.on:
+    borrowed = _borrowed(state)
+    if not chain.on and not borrowed:
         return Refusal(RefusalKind.CHAIN, "no chain is on")
     writes = []
     for slot in MAIN_JACKS:
         _patch(state, slot, native_source(slot), writes)
-    input_links, bus_links = state.links()
-    layout = topology.StereoLayout.from_links(input_links, bus_links)
-    for stage in reversed(chain.stages):
-        cell = layout.primary_cell(stage.carrier, stage.bus)
-        if state.soloed(cell):
-            writes.append(Write(Address(P.MIX_SOLO, cell.index), False))
-        gain = state.gain(cell)
-        if gain is not None and not gain.is_silent:
-            writes.append(Write(Address(P.MIX_FADER, cell.index), Gain(0.0)))
-        for side in (0, 1):
-            slot = _MIXER_INPUT_BASE + stage.carrier + side
-            _patch(state, slot, native_source(slot), writes)
+    order = [s.carrier for s in reversed(chain.stages)] + [c for c in borrowed if c not in {s.carrier for s in chain.stages}]
+    for carrier in order:
+        _hand_back(state, carrier, writes)
     return tuple(writes)
