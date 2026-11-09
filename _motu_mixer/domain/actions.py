@@ -1,7 +1,7 @@
 """Mixer actions and the planner that turns one action into the property writes CueMix would make."""
 from dataclasses import dataclass
 
-from . import properties, topology as _topology
+from . import chain as _chain, properties, topology as _topology
 from .properties import PropertyId as P, ValueType
 from .status import Refusal, RefusalKind
 from .eq import check_eq_value, is_eq_prop
@@ -80,8 +80,15 @@ class SetProperty:
     value: float | int
 
 
+@dataclass(frozen=True)
+class SetChain:
+    """Build the monitor chain of these stages on the Main jacks, or hand everything back (docs/monitor-chain.md)."""
+    on: bool
+    stages: tuple = ()      # Stage(bus, carrier) in order from Main outwards; ignored when switching off
+
+
 MixerAction = (SetLevel | SetPan | SetMute | SetSolo | SetInputLink | SetBusLink | SetMasterLevel
-               | SetMasterMute | SetRoute | SetRouteSlot | SetProperty)
+               | SetMasterMute | SetRoute | SetRouteSlot | SetProperty | SetChain)
 
 _CELL_ACTIONS = {
     SetLevel: (P.MIX_FADER, lambda a: Gain.from_db(a.db).clamped()),
@@ -143,6 +150,8 @@ def _property(action, spec) -> tuple[Write, ...] | Refusal:
 
 
 def _plan(action, state, spec, topology):
+    if isinstance(action, SetChain):
+        return _chain.plan_on(action.stages, state) if action.on else _chain.plan_off(state)
     if isinstance(action, SetProperty):
         return _property(action, spec)
     if isinstance(action, SetRoute):

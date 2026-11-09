@@ -322,3 +322,35 @@ def test_the_state_and_deltas_carry_the_analog_input_block():
     live = snapshot_json(Snapshot(state=capture, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["inputs"]
     assert live["gain"] == [47, 42, 17, 16, 12, 12, 12, 12, 9, 9, 0, 0]
     assert live["phantom"] == [0, 0] and live["pad"] == [0, 0] and live["phase"] == [0] * 10
+
+
+def test_the_state_carries_the_recognised_chain_and_the_pairs_a_chain_may_use():
+    from _motu_mixer.domain.test_chain import one_stage_on, unit
+    body = snapshot_json(Snapshot(state=unit(), status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))
+    chain = body["chain"]
+    assert chain["on"] is False and chain["stages"] == [] and chain["max_stages"] == 4
+    assert [o["bus"] for o in chain["stage_options"]] == [2, 4, 6, 8]
+    assert chain["stage_options"][2] == {"bus": 6, "label": "Ana 5-6", "feeds": []}
+    assert chain["stage_options"][0]["feeds"] == [] and chain["stage_options"][0]["label"] == "Ana 1-2"
+    assert [o["input"] for o in chain["carrier_options"]] == list(range(10, 44, 2))
+    assert chain["carrier_options"][-1] == {"input": 42, "label": "Reverb return L-R", "live": False}
+    state = unit(patch={53: 78, 56: 79}, faders=[(0, 40)])      # Line out 3-4 fed by Ana 1-2; Computer 13 live on Main
+    chain = snapshot_json(Snapshot(state=state, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
+    assert chain["stage_options"][0]["feeds"] == ["Line out 3-4"]
+    assert next(o for o in chain["carrier_options"] if o["input"] == 40)["live"] is True
+    on = snapshot_json(Snapshot(state=one_stage_on(), status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
+    assert on["on"] is True
+    assert on["stages"] == [{"bus": 6, "carrier": 42, "label": "Ana 5-6", "carrier_label": "Reverb return L-R"}]
+
+
+def test_set_chain_parses_its_stages_and_refuses_malformed_ones():
+    from _motu_mixer.domain.actions import SetChain
+    from _motu_mixer.domain.chain import Stage
+    assert parse_action({"kind": "set_chain", "on": True, "stages": [{"bus": 6, "carrier": 42}]}) == SetChain(True, (Stage(6, 42),))
+    assert parse_action({"kind": "set_chain", "on": False}) == SetChain(False, ())
+    for bad in ({"kind": "set_chain", "on": 1}, {"kind": "set_chain", "on": True, "stages": "x"},
+                {"kind": "set_chain", "on": True, "stages": [{"bus": 6}]}):
+        refusal = parse_action(bad)
+        assert isinstance(refusal, Refusal) and refusal.kind is RefusalKind.MALFORMED_REQUEST, bad
+    refusal = parse_action({"kind": "set_chain", "on": True, "stages": [{"bus": 16, "carrier": 42}]})
+    assert isinstance(refusal, Refusal) and refusal.kind is RefusalKind.INDEX_RANGE

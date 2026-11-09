@@ -1,4 +1,5 @@
-"""S/PDIF loop guard: finds every signal path from S/PDIF in to S/PDIF out and refuses changes that add or strengthen one."""
+"""Feedback guard: every path from S/PDIF in to S/PDIF out, and every mix that reaches its own bus again (a bus whose
+mix is patched into a mixer input live on that bus, through any number of hops); refuses changes that add or strengthen one."""
 from collections import deque
 from dataclasses import dataclass
 
@@ -116,7 +117,58 @@ class _Graph:
             for out in self.outs:
                 if out in came_from:
                     found.add(self.path(self.walk(came_from, out)[::-1]))
+        return frozenset(found) | self.cycle_paths()
+
+    # ---- a mix reaching its own bus again ----
+    def cycle_path(self, nodes):
+        """nodes: a closed walk starting and ending at the same bus node."""
+        hops = []
+        for kind, n in nodes:
+            if kind == "bus":
+                hops.append(PathNode(BusIndex(n), BUS_NAMES[n]))
+            elif kind == "src":
+                hops.append(PathNode(Source(n), self.classes[n].label))
+            elif kind == "in":
+                hops.append(PathNode(InputIndex(n), INPUT_NAMES[n]))
+        return LoopPath(tuple(hops))
+
+    def cycle_paths(self):
+        found = set()
+        for b in range(16):
+            start = ("bus", b)
+            came_from = self.search(self.successors(start), self.successors)
+            if start in came_from:
+                found.add(self.cycle_path([start] + self.walk(came_from, start)[::-1]))
         return frozenset(found)
+
+    def nodes(self):
+        seen = set(("bus", b) for b in range(16))
+        queue = deque(seen)
+        while queue:
+            node = queue.popleft()
+            for nxt in self.successors(node):
+                if nxt not in seen:
+                    seen.add(nxt)
+                    queue.append(nxt)
+        return seen
+
+    def cycle_edges(self):
+        """Every hop (u, v) lying on a cycle: v leads back to u."""
+        edges = set()
+        for u in self.nodes():
+            for v in self.successors(u):
+                if u in self.search([v], self.successors):
+                    edges.add((u, v))
+        return edges
+
+    def cycle_through(self, edge):
+        u, v = edge
+        came_from = self.search([v], self.successors)
+        nodes = [u] + self.walk(came_from, u)[::-1]          # u, v, …, u
+        buses = [k for k, node in enumerate(nodes[:-1]) if node[0] == "bus"]
+        k = buses[0] if buses else 0
+        rotated = nodes[k:-1] + nodes[:k] + [nodes[k]]
+        return self.cycle_path(rotated)
 
     def path_through(self, edge):
         u, v = edge
@@ -134,12 +186,18 @@ class SpdifLoopGuard:
     def check(self, before, after, writes) -> Accepted | Refusal:
         graph = _Graph(after, self._topology)
         loop_edges = graph.edges()
-        if not loop_edges:
+        cycle_edges = graph.cycle_edges()
+        if not loop_edges and not cycle_edges:
             return Accepted()
-        added = sorted(loop_edges - _Graph(before, self._topology).edges())
-        raised = [edge for edge in self._raised_cells(before, after, writes) if edge in loop_edges]
-        for edge in added + raised:
+        previous = _Graph(before, self._topology)
+        raised = list(self._raised_cells(before, after, writes))
+        added = sorted(loop_edges - previous.edges()) + [edge for edge in raised if edge in loop_edges]
+        for edge in added:
             path = graph.path_through(edge)
+            return Refusal(RefusalKind.LOOP, path.label(), path)
+        new_cycles = sorted(cycle_edges - previous.cycle_edges()) + [edge for edge in raised if edge in cycle_edges]
+        for edge in new_cycles:
+            path = graph.cycle_through(edge)
             return Refusal(RefusalKind.LOOP, path.label(), path)
         return Accepted()
 

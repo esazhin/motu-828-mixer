@@ -189,6 +189,10 @@ received on the same SysEx datastore as the mixer: there is no separate MIDI CC 
 
 - **[CODE]** The knob writes with the generic `datastore.setV`, so a write is the normal host→device message
   (§2.1): `[5001][index][len=1][value]`. `kiGain` `v` defaults: `[0,0, 0×8, 0,0]`.
+- **[LIVE] Not pushed (2026-11-08):** a gain change made on the **front panel** is stored but **not reported on the
+  stream** (25 s raw tap while the Mic 1 knob moved 52 → 32 dB: meters only; a fresh EnableSysexAPI showed the new
+  value). The protocol has no per-property read (requests are SetProperty 0x00, Probe 0x01, Enable 0x02 only), so
+  the service re-sends Enable (`POST /api/resync`) every 3 s while a page shows the Inputs tab.
 - **[LIVE] 2026-10-12 capture:** the unit reports the whole block unasked in its full state: 5001 ×12
   = `47 42 17 16 12 12 12 12 9 9 0 0` dB (real settings, not defaults), 5002 ×10, 5003/5004/5005/5021 ×2 all 0,
   5000 ×16, 5011 = 12. Front-panel gain changes therefore arrive as ordinary 5001 reports.
@@ -229,6 +233,13 @@ range (its `InPrePostFXMenu` writes the computer-in slots 0–31). Two consequen
 through a second bus for a second 3-band EQ stage, and a patched input has **no meter of its own** (the per-input
 meter taps follow the physical source code, §4.7). Any chain must keep the borrowed input at −∞ on the bus it
 is fed from, or the mix feeds back into itself.
+
+**Chains (docs/monitor-chain.md):** the service builds a *monitor chain* from these facts: Main mix → carrier (a
+mixer-input pair patched to `76+bus`/`77+bus`) → an Ana bus pair (its 3-band EQ) → … → Main jacks (slots 37/39).
+Switching off returns every touched slot to its **native source** (the table above: slot `76+i` ← Mic/Line
+`32+LocalInputs[i]`, S/PDIF 58/59, ADAT 60–75, Computer `i−28`, reverb 90/91; jacks 37/39 ← 76/77), so nothing is
+stored. On: links, carrier silenced on every other bus, carrier patches, stage levels, jacks last. The feedback
+guard refuses any bus whose mix reaches a mixer input live on that same bus. Live test **W8** (§9): pending.
 
 **[LIVE] Mixer latency (2026-11-08):** measured at 48 kHz by recording two computer-in channels at once (host out 1
 looped straight back through the patch table as the reference, the path under test on the other channel) and
@@ -343,6 +354,7 @@ Each test reads the value, writes a new one, reads it back from the stream, then
 | ~~W4~~ | dropped: §4.5 is settled from CueMix code (one cell per action, first channel/bus), so no live test is needed | stereo semantics (§4.5) [CODE] |
 | W5 ✅ | kFPGAPatch: an **unused** output slot (Line out 10, slot 40) → 127 → restore | **PASS 2026-10-12**: routing write path |
 | W7 ✅ | kFPGAPatch mixer-input slot 102 (ADAT B 7 → input 26): 74 → 127 → 76 (Main mix L) → restored 74; flow proved on the jackless Ana 5 bus meter | **PASS 2026-11-08**: mixer-input slots are writable; a bus mix can feed a mixer input (§5) |
+| W8 | monitor chain on (Main → reverb return → Ana 5-6 → jacks), stage meter = Main meter, off → every slot native | the chain action end to end (§5, docs/monitor-chain.md) |
 | W6 ✅ | kiGain 5001 index 9 (Line 10 trim) 9 → 10 dB → read back → restored to 9 | **PASS 2026-11-08**: one-byte input-block write path (§4.8). Frame `f0 00 00 3b 00 01 00 02 13 09 00 09 00 01 0a f7`; the new value was read back from a fresh full sync, not from the echo. kPad 5003 confirmed from the Inputs page on the unit the same day |
 
 Safety: start with W1 on a muted, unused cell. Switch 48V (5004) only on a mic input with nothing connected; change gain or pad only on an input with nothing connected or by ±1 dB, and restore. Keep `amidi` or the

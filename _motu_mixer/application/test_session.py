@@ -945,3 +945,36 @@ def test_session_asks_again_for_the_full_dump_until_the_unit_is_settled():
 
     seen = asyncio.run(scenario())
     assert seen == {"before 3 s": 1, "after 3 s": 2, "after 6 s": 3, "once settled": 3}
+
+
+def test_resync_re_sends_enable_only_while_a_replied_port_is_open():
+    """Front-panel preamp changes are not pushed by the unit (2026-11-08): the page asks for the full state again."""
+    clock, port, pump = ManualClock(), Port(), Pump()
+    session = DeviceSession(
+        service=Service(), locator=Locator(), new_port=lambda: port, pump=pump, clock=clock,
+        port_name="828 COM", probe_frame=lambda: PROBE, enable_frame=lambda: ENABLE,
+    )
+
+    async def scenario():
+        running = asyncio.create_task(session.run())
+        seen = {}
+        try:
+            await advance_to(clock, 0.25)
+            seen["before the probe reply"] = (session.resync(), port.written.count(ENABLE))
+            pump.sink.on_bytes(b"probe reply")
+            await advance_to(clock, 0.5)
+            pump.sink.on_bytes(b"dump done")
+            await advance_to(clock, 1.0)
+            seen["synced"] = (session.resync(), port.written.count(ENABLE))
+            await session.release()
+            await advance_to(clock, 1.25)
+            seen["released"] = (session.resync(), port.written.count(ENABLE))
+        finally:
+            running.cancel()
+            await asyncio.gather(running, return_exceptions=True)
+        return seen
+
+    seen = asyncio.run(scenario())
+    assert seen["before the probe reply"] == (False, 0)
+    assert seen["synced"] == (True, 2)              # the enable after the reply, and the resync
+    assert seen["released"] == (False, 2)

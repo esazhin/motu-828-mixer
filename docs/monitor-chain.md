@@ -4,7 +4,7 @@
 > |---|---|
 > | id | `monitor-chain` |
 > | created | `2026-11-08` |
-> | status | draft · **locked** (2026-11-08) · delivered · verified |
+> | status | draft · locked (2026-11-08) · **delivered** (2026-11-08, W8 pending) · verified |
 > | builds on | [PROTOCOL-SPEC.md](../PROTOCOL-SPEC.md) §4.6 (EQ), §5 (routing, W7, mixer latency) |
 
 ## 1 · Intent
@@ -47,14 +47,14 @@ Role: binding.
 One atomic action, planned fully before anything is sent, refused as a whole if any step is refused:
 
 1. Link each stage pair (koMixStereo) and each carrier pair (kiMixStereo) if not already linked.
-2. Patch carrier n's two slots (`76 + input`) to stage n−1's mix outputs (`76 + bus`, `77 + bus`).
-3. On stage n: carrier n at 0 dB, panned hard left/right (one cell per action, §4.5), unmuted, no solo.
-   On **every other bus** the carrier stays or is set to −∞ and muted. Stage n's master at 0 dB, unmuted.
-4. Main jacks (slots 37, 39) ← last stage's mix outputs.
+2. Silence each carrier (−∞) on **every bus but its own stage**, so the mix it is about to carry cannot feed back.
+3. Patch carrier n's two slots (`76 + input`) to stage n−1's mix outputs (`76 + bus`, `77 + bus`).
+4. On stage n: carrier n at 0 dB (the pair's primary cell, §4.5), unmuted; stage n's master at 0 dB, unmuted.
+5. Main jacks (slots 37, 39) ← last stage's mix outputs.
 
-Order matters for silence: patches first, then faders, then the jacks last, so the monitors never hear a
-half-built chain. Switching off reverses the order: jacks first (back to 76/77), carriers to −∞ on their
-stage, carrier slots back to native, links left as they were found.
+Order matters for silence: silence, patches, levels, then the jacks last, so the monitors never hear a half-built
+chain and no carrier ever carries a mix it is live on. Switching off reverses the order: jacks first (back to
+76/77), carriers to −∞ on their stage, carrier slots back to native, links left as they were found.
 
 ### 2.3 Guards
 

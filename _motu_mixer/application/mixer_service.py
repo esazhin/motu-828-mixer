@@ -12,6 +12,7 @@ from _motu_mixer.protocol.sysex import ProbeReply, SysexSplitter, decode as deco
 from .ports import ChangeOutcome, DeviceEvents, Snapshot
 
 _LINKS = (P.INPUT_LINK, P.BUS_LINK)
+_CHAIN_SLOTS = frozenset((37, 39)) | frozenset(range(76, 120))   # the Main jacks and the mixer-input feeds
 _GATED = (P.MODEL_ID, P.API_VERSION, P.DEV_NAME, P.DEV_UID, P.OPTICAL_MODE, P.OPTICAL_EXPANDER)
 _JUDGED = (ConnectionStatus.SYNCING, ConnectionStatus.SYNCED, ConnectionStatus.READ_ONLY)
 _SETTLED = (ConnectionStatus.SYNCED, ConnectionStatus.READ_ONLY)
@@ -105,10 +106,16 @@ class MixerService:
         self._publisher.publish_delta(tuple(deltas))
         status, detail = self._next_status(judge)
         loops = self._next_loops(status)
-        publish_state = any(d.address.prop in _LINKS for d in deltas) or self._settles(status, detail)
+        publish_state = any(self._reshapes(d) for d in deltas) or self._settles(status, detail)
         changed = (status, detail, loops) != (self._status, self._detail, self._loops)
         self._status, self._detail, self._loops = status, detail, loops
         self._publish(publish_state, changed)
+
+    @staticmethod
+    def _reshapes(delta):
+        """A change the page cannot apply as a delta: the stereo layout or the monitor chain."""
+        prop, index = delta.address.prop, delta.address.index
+        return prop in _LINKS or (prop == P.PATCH and index in _CHAIN_SLOTS)
 
     def _next_status(self, judge):
         rejudge = judge or self._status is ConnectionStatus.SYNCING

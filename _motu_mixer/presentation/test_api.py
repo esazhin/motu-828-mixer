@@ -577,3 +577,20 @@ def test_every_module_the_page_imports_is_served():
             assert imported in served, f"{name} imports {imported}, which the API does not serve"
             pending.append(imported)
     assert {"app.js", "mixer_client.js", "eq_math.js"} <= seen
+
+
+def test_resync_endpoint_asks_the_session_for_the_full_state_again():
+    class SessionDouble:
+        def __init__(self):
+            self.answers = [True, False]
+            self.calls = 0
+
+        def resync(self):
+            self.calls += 1
+            return self.answers.pop(0)
+
+    session = SessionDouble()
+    client = TestClient(create_app(service=SimpleNamespace(), session=session, hub=SimpleNamespace(), static_dir=STATIC_DIR))
+    assert client.post("/api/resync").json() == {"resynced": True}
+    assert client.post("/api/resync").json() == {"resynced": False}
+    assert session.calls == 2

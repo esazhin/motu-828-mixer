@@ -4,10 +4,10 @@ import math
 from _motu_mixer.application.ports import ChangeOutcome
 from _motu_mixer.domain import properties, topology as _topology
 from _motu_mixer.domain.actions import (
-    SetBusLink, SetInputLink, SetLevel, SetMasterLevel, SetMasterMute, SetMute, SetPan, SetProperty, SetRoute,
-    SetRouteSlot, SetSolo,
+    SetBusLink, SetChain, SetInputLink, SetLevel, SetMasterLevel, SetMasterMute, SetMute, SetPan, SetProperty,
+    SetRoute, SetRouteSlot, SetSolo,
 )
-from _motu_mixer.domain import preamp
+from _motu_mixer.domain import chain as _chain, preamp
 from _motu_mixer.domain.eq import INPUT_EQ, OUTPUT_EQ
 from _motu_mixer.domain.properties import PropertyId as P
 from _motu_mixer.domain.protocol_bounds import OPEN_ITEMS
@@ -83,7 +83,21 @@ def _property(obj):
     return SetProperty(prop=prop, index=index, value=value)
 
 
+def _chain_action(obj):
+    on = _flag(obj, "on")
+    stages = obj.get("stages", [])
+    if not isinstance(stages, list):
+        raise _Malformed("'stages' must be a list of {bus, carrier}")
+    parsed = []
+    for stage in stages:
+        if not isinstance(stage, dict):
+            raise _Malformed("'stages' must be a list of {bus, carrier}")
+        parsed.append(_chain.Stage(bus=_int(stage, "bus"), carrier=_int(stage, "carrier")))
+    return SetChain(on=on, stages=tuple(parsed))
+
+
 _PARSERS = {
+    "set_chain": _chain_action,
     "set_level": lambda o: SetLevel(bus=_bus(o), input=_input(o), db=_db(o)),
     "set_pan": lambda o: SetPan(bus=_bus(o), input=_input(o), pan=_number(o, "pan")),
     "set_mute": lambda o: SetMute(bus=_bus(o), input=_input(o), on=_flag(o, "on")),
@@ -206,6 +220,39 @@ def _inputs(state):
     return {name: column(prop) for name, prop in _INPUT_COLUMNS.items()}
 
 
+def _fed_pairs(state, bus):
+    """Labels of the output pairs fed by this stereo bus pair's mix today (what a stage takes over)."""
+    left, right = Source(_topology.bus_mix_source(bus)), Source(_topology.bus_mix_source(bus + 1))
+    return [label for pair, label in _topology.OUTPUT_PAIRS.items()
+            if state.source(pair.left) == left and state.source(pair.right) == right]
+
+
+def _live_anywhere(state, inp):
+    for bus in range(16):
+        cell = MixCell(bus, inp)
+        gain = state.gain(cell)
+        if gain is not None and not gain.is_silent and not state.muted(cell):
+            return True
+    return False
+
+
+def _chain_json(state):
+    """The recognised chain, and the stage and carrier pairs a chain may use with what each would take over.
+    The chain is the 828's own numbering (domain/chain.py), so it reads the real catalogue."""
+    recognised = _chain.recognise(state)
+    return {
+        "on": recognised.on,
+        "stages": [{"bus": s.bus, "carrier": s.carrier, "label": s.label, "carrier_label": s.carrier_label}
+                   for s in recognised.stages],
+        "max_stages": _chain.MAX_STAGES,
+        "stage_options": [{"bus": b, "label": _chain.pair_label(_topology.BUS_NAMES, b), "feeds": _fed_pairs(state, b)}
+                          for b in _chain.STAGE_BUSES],
+        "carrier_options": [{"input": i, "label": _chain.pair_label(_topology.INPUT_NAMES, i),
+                             "live": _live_anywhere(state, i) or _live_anywhere(state, i + 1)}
+                            for i in _chain.CARRIER_INPUTS],
+    }
+
+
 def _device(state):
     identity = state.identity()
     return {field: getattr(identity, field, None) for field in _DEVICE_FIELDS}
@@ -233,6 +280,7 @@ def snapshot_json(snapshot, topology=_topology):
         "routing": _routing(state),
         "eq": _eq(state),
         "inputs": _inputs(state),
+        "chain": _chain_json(state),
         "loops": _loops(snapshot.loops),
         "policy": {item.name: item.behaviour for item in OPEN_ITEMS},
         "layout": _layout(state, topology),

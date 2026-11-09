@@ -93,6 +93,7 @@ test('receiving the state renders the full view of the selected tab', () => {
     mute: { control: 'master_mute:0', on: false },
     link: { control: 'bus_link:0', on: true },
     eq: null,
+    chain: null,
   });
   assert.equal(line3.eq, null, 'no EQ data in this state, so no EQ buttons');
   assert.deepEqual(v.routing, [], 'routing lives on its own tab');
@@ -656,4 +657,125 @@ test('a state without the input block shows an empty Inputs page', () => {
   client.receive(stateMessage());
   client.gesture({ type: 'select_tab', control: 'tab:inputs' });
   assert.deepEqual(view().inputs, []);
+});
+
+// ---- the monitor chain ----
+function chainState({ on = false } = {}) {
+  const state = eqState();
+  state.layout.tabs.push({ label: 'Ana 5-6', bus: 6, stereo: true, pan: [] });
+  state.links.buses[6] = 1;
+  const stageOptions = [[2, 'Ana 1-2', ['Line out 3-4']], [4, 'Ana 3-4', []], [6, 'Ana 5-6', []], [8, 'Ana 7-8', ['Line out 9-10']]];
+  state.chain = {
+    on,
+    stages: on ? [{ bus: 6, carrier: 42, label: 'Ana 5-6', carrier_label: 'Reverb return L-R' }] : [],
+    max_stages: 4,
+    stage_options: stageOptions.map(([bus, label, feeds]) => ({ bus, label, feeds })),
+    carrier_options: [{ input: 40, label: 'Computer 13-14', live: true }, { input: 42, label: 'Reverb return L-R', live: false }],
+  };
+  // Ana 5-6's EQ (slot 6): a 60 Hz low shelf at -4 dB
+  state.eq.output.mode[18] = 1; state.eq.output.bypass[18] = 0; state.eq.output.freq[18] = 60; state.eq.output.gain[18] = -4;
+  return state;
+}
+
+test('the Main tab master carries a Chain button lit when a chain is on; other tabs have none', () => {
+  const { client, view } = recordingClient();
+  client.receive(chainState());
+  assert.deepEqual(view().master.chain, { control: 'chain', on: false });
+  client.receive(chainState({ on: true }));
+  assert.deepEqual(view().master.chain, { control: 'chain', on: true });
+  client.gesture({ type: 'select_tab', control: 'tab:4' });
+  assert.equal(view().master.chain, null);
+  client.receive(stateMessage());
+  assert.equal(view().master.chain, null, 'a server without the chain shows no button');
+});
+
+test('the chain window lists Main, the draft stages and the jacks, offers only unused pairs, and sums every stage\'s EQ', () => {
+  const { client, view } = recordingClient();
+  client.receive(chainState());
+  assert.equal(view().chain, null);
+  client.gesture({ type: 'open_chain' });
+  const chain = view().chain;
+  assert.equal(chain.on, false);
+  assert.deepEqual(chain.stages.map((s) => [s.index, s.bus, s.carrier, s.label, s.carrierLabel, s.eq, s.remove, s.cls]),
+    [[1, 6, 42, 'Ana 5-6', 'Reverb return L-R', 'eq:out:6', 'chainrm:0', 'stage-1']], 'the default draft: Ana 5-6 carried by the reverb return');
+  assert.equal(chain.canAdd, true);
+  assert.deepEqual(chain.stageOptions, [
+    { value: 2, label: 'Ana 1-2 (feeds Line out 3-4)' }, { value: 4, label: 'Ana 3-4' }, { value: 8, label: 'Ana 7-8 (feeds Line out 9-10)' },
+  ]);
+  assert.deepEqual(chain.carrierOptions, [{ value: 40, label: 'Computer 13-14 (in use)' }]);
+  assert.deepEqual(chain.sections.map((s) => [s.index, s.label, s.slot, s.cls, s.bands.length]), [[0, 'Main 1-2', 0, 'stage-0', 3], [1, 'Ana 5-6', 6, 'stage-1', 3]]);
+  assert.equal(chain.bands.length, 6);
+  assert.deepEqual(chain.bands.map((b) => b.control).slice(3), ['eqb:out:6:0', 'eqb:out:6:1', 'eqb:out:6:2']);
+  assert.ok(chain.bands.every((b) => b.cls === STAGE(b.stage)));
+  const at = (f) => chain.curve.db[chain.curve.freqs.reduce((best, x, i) => Math.abs(Math.log(x / f)) < Math.abs(Math.log(chain.curve.freqs[best] / f)) ? i : best, 0)];
+  assert.ok(at(30) < -3 && at(30) > -5, `the stage's low shelf shows in the summed curve (${at(30)})`);
+  assert.ok(at(10000) < -2 && at(10000) > -4, 'and so does Main\'s high shelf');
+  client.gesture({ type: 'close_chain' });
+  assert.equal(view().chain, null);
+});
+const STAGE = (k) => `stage-${k}`;
+
+test('the chain switch sends set_chain with the draft stages, and off sends set_chain off', () => {
+  const { client, sent, view } = recordingClient();
+  client.receive(chainState());
+  client.gesture({ type: 'open_chain' });
+  sent.length = 0;
+  client.gesture({ type: 'chain_power', on: true });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_chain', on: true, stages: [{ bus: 6, carrier: 42 }] }]);
+  sent.length = 0;
+  client.gesture({ type: 'chain_power', on: false });
+  assert.deepEqual(sent, [], 'off when nothing is on sends nothing');
+  client.receive(chainState({ on: true }));
+  client.gesture({ type: 'chain_power', on: false });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_chain', on: false, stages: [] }]);
+  client.receive({ type: 'status', status: 'syncing', read_only_reason: null });
+  sent.length = 0;
+  client.gesture({ type: 'chain_power', on: true });
+  assert.deepEqual(sent, [], 'nothing while not synced');
+  assert.equal(view().chain.on, true);
+});
+
+test('adding and removing stages edits the draft while off, rebuilds the chain while on, and is remembered per browser', () => {
+  const sent = [];
+  const renders = [];
+  const storage = memoryStorage({ 'motu-mixer:collapsed': '' });
+  const client = createMixerClient({ send: (m) => sent.push(m), render: (v) => renders.push(v), storage });
+  client.receive(chainState());
+  client.gesture({ type: 'open_chain' });
+  client.gesture({ type: 'chain_add', bus: 8, carrier: 40 });
+  assert.deepEqual(sent, [], 'editing the draft sends nothing while off');
+  let chain = renders.at(-1).chain;
+  assert.deepEqual(chain.stages.map((s) => [s.bus, s.carrier]), [[6, 42], [8, 40]]);
+  assert.deepEqual(chain.stageOptions.map((o) => o.value), [2, 4]);
+  assert.deepEqual(chain.carrierOptions, []);
+  assert.equal(JSON.parse(storage.data['motu-mixer:chain']).length, 2);
+  client.gesture({ type: 'chain_add', bus: 8, carrier: 42 });          // a used bus or carrier is ignored
+  assert.equal(renders.at(-1).chain.stages.length, 2);
+  client.gesture({ type: 'chain_remove', index: 0 });
+  assert.deepEqual(renders.at(-1).chain.stages.map((s) => [s.bus, s.carrier]), [[8, 40]]);
+  // a fresh page in this browser starts from the saved draft
+  const again = createMixerClient({ send() {}, render: (v) => renders.push(v), storage });
+  again.receive(chainState());
+  again.gesture({ type: 'open_chain' });
+  assert.deepEqual(renders.at(-1).chain.stages.map((s) => [s.bus, s.carrier]), [[8, 40]]);
+  // while on, a change is sent as the whole new chain; removing the last stage switches off
+  client.receive(chainState({ on: true }));
+  sent.length = 0;
+  client.gesture({ type: 'chain_add', bus: 8, carrier: 40 });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_chain', on: true, stages: [{ bus: 6, carrier: 42 }, { bus: 8, carrier: 40 }] }]);
+  sent.length = 0;
+  client.gesture({ type: 'chain_remove', index: 0 });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_chain', on: false, stages: [] }]);
+});
+
+test('opening a stage EQ from the chain window closes it, and the chain on the unit overrides the draft', () => {
+  const { client, view } = recordingClient();
+  client.receive(chainState({ on: true }));
+  client.gesture({ type: 'open_chain' });
+  client.gesture({ type: 'open_eq', control: 'eq:out:6' });
+  assert.equal(view().chain, null);
+  assert.equal(view().eq.title, 'Ana 5-6 EQ');
+  client.gesture({ type: 'open_chain' });
+  assert.equal(view().eq, null);
+  assert.deepEqual(view().chain.stages.map((s) => [s.bus, s.carrier]), [[6, 42]]);
 });

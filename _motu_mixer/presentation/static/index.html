@@ -121,6 +121,36 @@
   .confirm-remember input { accent-color: var(--cyan); width: 16px; height: 16px; margin: 0; }
   .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
   .confirm-ok { color: #fff; background: #ff3b5c; border-color: #ff3b5c; font-weight: 700; box-shadow: 0 0 10px rgba(255, 59, 92, 0.6); }
+  .chain-open { font-size: 11px; letter-spacing: 0.06em; }
+  .chain-open.on { color: var(--bg-deep); background: #39ff88; border-color: #39ff88; box-shadow: 0 0 10px rgba(57, 255, 136, 0.7); }
+  #chain { display: none; }
+  body[data-chain="open"] #chain {
+    display: flex; position: fixed; inset: 0; z-index: 10; align-items: center; justify-content: center;
+    background: rgba(1, 12, 14, 0.72); backdrop-filter: blur(4px); padding: 12px;
+  }
+  .chain-title-row { display: flex; align-items: center; gap: 14px; }
+  .chain-power { font-weight: 700; letter-spacing: 0.08em; }
+  .chain-power.on { color: var(--bg-deep); background: #39ff88; border-color: #39ff88; box-shadow: 0 0 12px rgba(57, 255, 136, 0.7); }
+  .chain-stages { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .chain-stage {
+    display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 10px;
+    background: var(--panel); border: 1px solid var(--panel-edge); border-left: 4px solid var(--stage, var(--muted));
+  }
+  .chain-stage-name { font-weight: 700; font-size: 12px; min-width: 150px; }
+  .chain-stage-note { color: var(--muted); font-size: 11px; flex: 1; }
+  .chain-remove { font-size: 11px; padding: 3px 10px; }
+  .chain-jacks { border-left-color: var(--magenta); }
+  .chain-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 12px; }
+  .chain-section { margin-top: 10px; padding: 8px 10px 10px; border-radius: 12px; border: 1px dashed var(--stage); }
+  .chain-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--stage); margin-bottom: 6px; }
+  .chain-section .eq-bands { margin-top: 0; }
+  .chain-section .eq-band { border-top-color: var(--stage); }
+  .chain-section .eq-toggle.on { background: var(--stage); border-color: var(--stage); box-shadow: 0 0 8px var(--stage); }
+  .chain-section .eq-field input:focus { border-color: var(--stage); box-shadow: 0 0 8px var(--stage); }
+  .stage-0 { --stage: #00f0d8; --band: #00f0d8; } .stage-1 { --stage: #b28cff; --band: #b28cff; } .stage-2 { --stage: #ff2e88; --band: #ff2e88; }
+  .stage-3 { --stage: #ffc53d; --band: #ffc53d; } .stage-4 { --stage: #39ff88; --band: #39ff88; }
+  .eq-point.stage-0 { fill: #00f0d8; } .eq-point.stage-1 { fill: #b28cff; } .eq-point.stage-2 { fill: #ff2e88; }
+  .eq-point.stage-3 { fill: #ffc53d; } .eq-point.stage-4 { fill: #39ff88; }
   .eq-open { font-size: 11px; letter-spacing: 0.06em; }
   .eq-open.on { color: var(--bg-deep); background: #b28cff; border-color: #b28cff; box-shadow: 0 0 10px rgba(178, 140, 255, 0.7); }
   #eq { display: none; }
@@ -195,6 +225,7 @@
 <section id="routing"></section>
 <div id="eq"></div>
 <div id="confirm"></div>
+<div id="chain"></div>
 <script type="module">
   import { startApp } from './app.js';
   startApp({ document, WebSocket, setTimeout: (fn, ms) => setTimeout(fn, ms), location });

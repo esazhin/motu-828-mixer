@@ -17,7 +17,9 @@ function browserStorage() {
   try { return globalThis.localStorage ?? null; } catch { return null; }   // blocked storage throws on access
 }
 
-export function startApp({ document, WebSocket, setTimeout, location, createClient = createMixerClient, storage = browserStorage() }) {
+const INPUTS_REFRESH_MS = 3000;   // the unit does not push front-panel preamp changes: ask for its state while the Inputs page shows
+
+export function startApp({ document, WebSocket, setTimeout, location, createClient = createMixerClient, storage = browserStorage(), fetch = globalThis.fetch }) {
   const status = document.getElementById('status');
   const tabs = document.getElementById('tabs');
   const strips = document.getElementById('strips');
@@ -35,6 +37,23 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     return node;
   })();
   let confirmRemember = null;   // the "don't ask again" box of the open confirmation
+  const chainHost = document.getElementById('chain') ?? (() => {
+    const node = document.createElement('div');
+    node.setAttribute('id', 'chain');
+    document.body.appendChild(node);
+    return node;
+  })();
+  let chainPicks = null;        // the bus and carrier selects of the open chain window
+  let inputsShown = false;
+  let refreshing = false;
+
+  function refreshInputs() {
+    if (!inputsShown) { refreshing = false; return; }
+    if (fetch && socket && socket.readyState === WebSocket.OPEN) {
+      try { Promise.resolve(fetch('/api/resync', { method: 'POST' })).catch(() => {}); } catch { /* offline: try again next tick */ }
+    }
+    setTimeout(refreshInputs, INPUTS_REFRESH_MS);
+  }
   let eqGraph = null;   // reused across redraws so a dragged point keeps its pointer capture
   let socket = null;
   let retryMs = 1000;
@@ -137,6 +156,13 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
       buttons.append(eq);
     } else {
       buttons.append(element('div', 'button-spacer'));
+    }
+    if (spec.chain) {
+      const chain = element('button', spec.chain.on ? 'chain-open on' : 'chain-open', 'Chain');
+      chain.setAttribute('data-control', spec.chain.control);
+      chain.setAttribute('data-gesture', 'open_chain');
+      chain.setAttribute('title', spec.chain.on ? 'Monitor chain is on: open the chain window' : 'Open the monitor chain window');
+      buttons.append(chain);
     }
     buttons.append(button(spec.mute, 'toggle', 'M', enabled, 'mute'));
     buttons.append(spec.solo ? button(spec.solo, 'toggle', 'S', enabled, 'solo') : element('div', 'button-spacer'));
@@ -281,7 +307,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     node.append(svg('path', { class: 'eq-curve', d: `M${points.join(' L')}` }));
     for (const b of eq.bands) {
       const point = svg('circle', {
-        class: `eq-point band-${b.band}${b.bypass ? ' bypassed' : ''}`,
+        class: `eq-point ${b.cls ?? `band-${b.band}`}${b.bypass ? ' bypassed' : ''}`,
         cx: fx(b.freq ?? 1000), cy: gy(b.gainEnabled ? b.gain ?? 0 : 0), r: 9,
       });
       point.setAttribute('data-control', b.point);
@@ -304,6 +330,40 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     return wrap;
   }
 
+  function bandCard(b, enabled) {
+    const card = element('div', `eq-band ${b.cls ?? `band-${b.band}`}`);
+    const top = element('div', 'eq-band-head');
+    const toggle = element('button', b.bypass ? 'eq-toggle' : 'eq-toggle on', b.bypass ? 'OFF' : 'ON');
+    toggle.setAttribute('data-control', `${b.control}:bypass`);
+    toggle.setAttribute('data-gesture', 'eq_toggle');
+    toggle.setAttribute('data-on', b.bypass ? '0' : '1');
+    if (!enabled) toggle.setAttribute('disabled', '');
+    top.append(element('span', 'eq-band-name', `Band ${b.band + 1}`), toggle);
+    card.append(top);
+    if (b.modes.length > 1) {
+      const select = document.createElement('select');
+      select.setAttribute('data-control', `${b.control}:mode`);
+      select.setAttribute('data-gesture', 'eq-field');
+      for (const m of b.modes) {
+        const option = document.createElement('option');
+        option.value = String(m.value);
+        option.textContent = m.label;
+        select.append(option);
+      }
+      select.value = String(b.mode);
+      if (!enabled) select.setAttribute('disabled', '');
+      card.append(select);
+    } else {
+      card.append(element('div', 'eq-mode-fixed', b.modes[0].label));
+    }
+    card.append(
+      eqField(b, 'freq', 'Hz', b.freq, enabled, { min: 20, max: 20000, step: 1 }),
+      eqField(b, 'gain', 'dB', b.gain, enabled && b.gainEnabled, { min: -20, max: 20, step: 0.1 }),
+      eqField(b, 'q', 'Q', b.q, enabled && b.qEnabled, { min: 0.45, max: 10, step: 0.01 }),
+    );
+    return card;
+  }
+
   function eqPanel(eq, enabled) {
     const panel = element('div', 'eq-panel');
     const head = element('div', 'eq-head');
@@ -312,40 +372,83 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     close.setAttribute('data-gesture', 'close_eq');
     head.append(element('h2', 'eq-title', eq.title), close);
     const bands = element('div', 'eq-bands');
-    for (const b of eq.bands) {
-      const card = element('div', `eq-band band-${b.band}`);
-      const top = element('div', 'eq-band-head');
-      const toggle = element('button', b.bypass ? 'eq-toggle' : 'eq-toggle on', b.bypass ? 'OFF' : 'ON');
-      toggle.setAttribute('data-control', `${b.control}:bypass`);
-      toggle.setAttribute('data-gesture', 'eq_toggle');
-      toggle.setAttribute('data-on', b.bypass ? '0' : '1');
-      if (!enabled) toggle.setAttribute('disabled', '');
-      top.append(element('span', 'eq-band-name', `Band ${b.band + 1}`), toggle);
-      card.append(top);
-      if (b.modes.length > 1) {
-        const select = document.createElement('select');
-        select.setAttribute('data-control', `${b.control}:mode`);
-        select.setAttribute('data-gesture', 'eq-field');
-        for (const m of b.modes) {
-          const option = document.createElement('option');
-          option.value = String(m.value);
-          option.textContent = m.label;
-          select.append(option);
-        }
-        select.value = String(b.mode);
-        if (!enabled) select.setAttribute('disabled', '');
-        card.append(select);
-      } else {
-        card.append(element('div', 'eq-mode-fixed', b.modes[0].label));
-      }
-      card.append(
-        eqField(b, 'freq', 'Hz', b.freq, enabled, { min: 20, max: 20000, step: 1 }),
-        eqField(b, 'gain', 'dB', b.gain, enabled && b.gainEnabled, { min: -20, max: 20, step: 0.1 }),
-        eqField(b, 'q', 'Q', b.q, enabled && b.qEnabled, { min: 0.45, max: 10, step: 0.01 }),
-      );
-      bands.append(card);
-    }
+    bands.append(...eq.bands.map((b) => bandCard(b, enabled)));
     panel.append(head, eqGraphView(eq), bands);
+    return panel;
+  }
+
+  // The chain window: the switch, the stages in order with their carriers, a picker for the next stage, and the
+  // combined EQ (every stage's bands on one graph, cards grouped by stage) that edits each stage's own properties.
+  function selectOf(control, options, placeholder) {
+    const select = document.createElement('select');
+    select.setAttribute('data-control', control);
+    const first = document.createElement('option');
+    first.value = '';
+    first.textContent = placeholder;
+    select.append(first, ...options.map((o) => option({ value: String(o.value), label: o.label })));
+    return select;
+  }
+
+  function chainPanel(chain, enabled) {
+    const panel = element('div', 'eq-panel chain-panel');
+    const head = element('div', 'eq-head');
+    const close = element('button', 'eq-close', '×');
+    close.setAttribute('data-control', 'chain-close');
+    close.setAttribute('data-gesture', 'close_chain');
+    const power = element('button', chain.on ? 'chain-power on' : 'chain-power', chain.on ? 'Chain ON' : 'Chain OFF');
+    power.setAttribute('data-control', 'chain-power');
+    power.setAttribute('data-gesture', 'chain_power');
+    power.setAttribute('data-on', chain.on ? '1' : '0');
+    if (!enabled) power.setAttribute('disabled', '');
+    const title = element('div', 'chain-title-row');
+    title.append(element('h2', 'eq-title', 'Monitor chain'), power);
+    head.append(title, close);
+    const list = element('div', 'chain-stages');
+    const main = element('div', 'chain-stage stage-0');
+    main.append(element('span', 'chain-stage-name', 'Main 1-2'), element('span', 'chain-stage-note', 'the mix, stage 0'));
+    list.append(main);
+    for (const s of chain.stages) {
+      const row = element('div', `chain-stage ${s.cls}`);
+      row.append(element('span', 'chain-stage-name', `${s.index} · ${s.label}`), element('span', 'chain-stage-note', `carried by ${s.carrierLabel}`));
+      const eq = element('button', 'eq-open', 'EQ');
+      eq.setAttribute('data-control', s.eq);
+      eq.setAttribute('data-gesture', 'open_eq');
+      const remove = element('button', 'chain-remove', 'remove');
+      remove.setAttribute('data-control', s.remove);
+      remove.setAttribute('data-gesture', 'chain_remove');
+      if (!enabled && chain.on) remove.setAttribute('disabled', '');
+      row.append(eq, remove);
+      list.append(row);
+    }
+    const jacks = element('div', 'chain-stage chain-jacks');
+    jacks.append(element('span', 'chain-stage-name', 'Main out jacks'),
+      element('span', 'chain-stage-note', chain.on ? `fed by stage ${chain.stages.length}` : 'fed by the Main mix (hardware)'));
+    list.append(jacks);
+    panel.append(head, list);
+    if (chain.canAdd) {
+      const add = element('div', 'chain-add');
+      const bus = selectOf('chain-add-bus', chain.stageOptions, 'stage bus pair…');
+      const carrier = selectOf('chain-add-carrier', chain.carrierOptions, 'carried by…');
+      chainPicks = { bus, carrier };
+      const button = element('button', 'chain-add-button', 'Add stage');
+      button.setAttribute('data-control', 'chain-add');
+      button.setAttribute('data-gesture', 'chain_add');
+      add.append(bus, carrier, button);
+      panel.append(add);
+    } else {
+      chainPicks = null;
+    }
+    if (chain.sections.length) {
+      panel.append(element('h3', 'section-title', `Combined EQ · ${chain.bands.length} bands`), eqGraphView(chain));
+      for (const sec of chain.sections) {
+        const group = element('div', `chain-section ${sec.cls}`);
+        group.append(element('div', 'chain-section-title', sec.index === 0 ? 'Main 1-2' : `Stage ${sec.index} · ${sec.label}`));
+        const cards = element('div', 'eq-bands');
+        cards.append(...sec.bands.map((b) => bandCard(b, enabled)));
+        group.append(cards);
+        panel.append(group);
+      }
+    }
     return panel;
   }
 
@@ -378,6 +481,12 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     confirmHost.replaceChildren(...(view.confirm ? [confirmPanel(view.confirm)] : []));
     document.body.setAttribute('data-eq', view.eq ? 'open' : 'closed');
     eqHost.replaceChildren(...(view.eq ? [eqPanel(view.eq, view.controlsEnabled)] : []));
+    document.body.setAttribute('data-chain', view.chain ? 'open' : 'closed');
+    if (!view.chain) chainPicks = null;
+    chainHost.replaceChildren(...(view.chain ? [chainPanel(view.chain, view.controlsEnabled)] : []));
+    const showingInputs = view.mode === 'inputs';
+    if (showingInputs && !inputsShown) { inputsShown = true; if (!refreshing) { refreshing = true; refreshInputs(); } }
+    if (!showingInputs) inputsShown = false;
     if (drag && !drag.element.hasPointerCapture(drag.pointerId)) drag.element.setPointerCapture(drag.pointerId);
   }
 
@@ -458,6 +567,13 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (gesture === 'toggle_group') client.gesture({ type: 'toggle_group', control });
     if (gesture === 'close_eq') client.gesture({ type: 'close_eq' });
     if (gesture === 'confirm') client.gesture({ type: 'confirm', remember: Boolean(confirmRemember && confirmRemember.checked) });
+    if (gesture === 'open_chain') client.gesture({ type: 'open_chain' });
+    if (gesture === 'close_chain') client.gesture({ type: 'close_chain' });
+    if (gesture === 'chain_power') client.gesture({ type: 'chain_power', on: node.getAttribute('data-on') !== '1' });
+    if (gesture === 'chain_remove') client.gesture({ type: 'chain_remove', index: Number(control.split(':')[1]) });
+    if (gesture === 'chain_add' && chainPicks && chainPicks.bus.value !== '' && chainPicks.carrier.value !== '') {
+      client.gesture({ type: 'chain_add', bus: Number(chainPicks.bus.value), carrier: Number(chainPicks.carrier.value) });
+    }
     if (gesture === 'cancel_confirm') client.gesture({ type: 'cancel_confirm' });
     if (gesture === 'eq_toggle') client.gesture({ type: 'eq_set', control, value: node.getAttribute('data-on') === '1' });
   });
@@ -487,6 +603,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
 
   if (location.hash === '#routing') client.gesture({ type: 'select_tab', control: 'tab:routing' });
   if (location.hash === '#inputs') client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  if (location.hash === '#chain') client.gesture({ type: 'open_chain' });
   if (/^#eq:(in|out):\d+$/.test(location.hash ?? '')) client.gesture({ type: 'open_eq', control: location.hash.slice(1) });
   connect();
 }

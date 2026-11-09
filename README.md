@@ -25,6 +25,14 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
 - **Inputs page:** mixer-style strips with preamp gain on Mic 1-2 (0-74 dB), trim on Line 3-10 (0-20 dB), the
   input's live meter in the fader track, polarity on each, pad and 48V on the mics, and the insert return's gain when
   one is plugged in. Switching 48V on asks for confirmation (with a "don't ask again" box, remembered per browser).
+  The unit does not report front-panel gain changes on its own, so the page asks for its state every 3 s while
+  the Inputs tab is shown.
+- **Monitor chain** (`Chain` on the Main 1-2 master, or `/#chain`): room correction with more than three bands.
+  The Main mix is carried through up to four Ana bus pairs before the Main jacks, each adding its own 3-band EQ,
+  at one sample of latency per stage (measured). The chain window lists the stages, lets you add or remove them
+  (the default first stage is Ana 5-6 carried by the reverb return), and shows the combined EQ of every stage on
+  one graph. Off hands every borrowed bus and input back to the hardware. See
+  [docs/monitor-chain.md](docs/monitor-chain.md).
 - Double-click a fader or master to set 0 dB, or a pan to centre it.
 - Any browser on your network; no login, no build step.
 
@@ -66,7 +74,8 @@ Open `http://<this-machine>:8280` from any device on the LAN (or `http://localho
 `syncing` while the 828 sends its full state, then `synced`. Other states: `no 828 connected`, `no 828 answered`,
 `control port busy`, `disconnected`, `released`, and `Read-only: …`.
 
-Direct links: `/#routing` opens the Routing tab; `/#inputs` the Inputs page; `/#eq:out:0` opens the Main EQ.
+Direct links: `/#routing` opens the Routing tab; `/#inputs` the Inputs page; `/#eq:out:0` opens the Main EQ;
+`/#chain` the monitor chain window.
 
 **As a desktop app:** in Chrome, open the page and choose *Cast, save and share → Create shortcut… → Open as window*.
 

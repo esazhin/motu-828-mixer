@@ -71,6 +71,14 @@ class DeviceSession:
             self._wake.set()
         return self._status
 
+    def resync(self) -> bool:
+        """Asks the unit for its whole state again (a second EnableSysexAPI). The 828 pushes mixer changes as they
+        happen but not front-panel preamp changes (gain, pad, 48V; seen 2026-11-08), so a page showing those asks."""
+        if self._port is None or not self._replied or self._released:
+            return False
+        self._enable()
+        return self._port is not None
+
     def on_bytes(self, chunk):
         if self._port is None:
             return

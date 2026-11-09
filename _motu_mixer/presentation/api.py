@@ -67,6 +67,10 @@ def create_app(service, session, hub, static_dir, view_model=_view_model):
     async def acquire():
         return {"status": str(await session.acquire())}
 
+    @app.post("/api/resync")
+    async def resync():
+        return {"resynced": session.resync()}
+
     @app.get("/api/diag/sent")
     def sent(n: int = 50):
         return [{"t": entry.t, "hex": entry.frame.hex(" ")} for entry in service.sent_log(n)]

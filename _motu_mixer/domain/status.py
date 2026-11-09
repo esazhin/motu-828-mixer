@@ -28,6 +28,7 @@ class RefusalKind(StrEnum):
     SLOT_NOT_WRITABLE = "slot_not_writable"
     MALFORMED_REQUEST = "malformed_request"
     VALUE_RANGE = "value_range"
+    CHAIN = "chain"
 
 
 @dataclass(frozen=True)
@@ -41,11 +42,18 @@ class LoopPath:
     hops: tuple[PathNode, ...]
 
     def __post_init__(self):
+        """Either the S/PDIF loop (S/PDIF in → … → S/PDIF out) or a mix feeding itself (a bus → … → the same bus)."""
         first, last = self.hops[0].ref, self.hops[-1].ref
+        if isinstance(first, BusIndex) and isinstance(last, BusIndex) and first == last and len(self.hops) > 1:
+            return
         if not (isinstance(first, Source) and first.code in _SPDIF_CODES):
             raise ValueError("a loop path starts at S/PDIF in")
         if not (isinstance(last, OutputSlot) and last in _SPDIF_CODES):
             raise ValueError("a loop path ends at S/PDIF out")
+
+    @property
+    def is_cycle(self) -> bool:
+        return isinstance(self.hops[0].ref, BusIndex)
 
     def label(self) -> str:
         return " → ".join(hop.label for hop in self.hops)

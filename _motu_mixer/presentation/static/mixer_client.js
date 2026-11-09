@@ -64,9 +64,9 @@ function modesFor(bands, band) {
   return [0];
 }
 
-function outputSlotName(slot) {
+function outputSlotName(slot, linked = false) {
   if (slot === 0) return 'Main 1-2';
-  if (slot >= 2 && slot <= 9) return `Ana ${slot - 1}`;
+  if (slot >= 2 && slot <= 9) return linked && slot % 2 === 0 ? `Ana ${slot - 1}-${slot}` : `Ana ${slot - 1}`;
   if (slot === 10) return 'Phones 1-2';
   if (slot === 12) return 'Phones 3-4';
   if (slot === 13) return 'Reverb';
@@ -110,6 +110,21 @@ const gainMax = (index) => (index < 2 ? MIC_GAIN_MAX : LINE_GAIN_MAX);
 function gainValue(index, value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(clamp(number, 0, gainMax(index))) : null;
+}
+
+// The monitor chain (docs/monitor-chain.md): Main → carrier → Ana stage → … → Main jacks, one 3-band EQ per stage.
+// The stages of a chain that is off are kept per browser so "on" rebuilds the same chain; the unit's state says what is on.
+const CHAIN_KEY = 'motu-mixer:chain';
+const DEFAULT_STAGE = { bus: 6, carrier: 42 };          // Ana 5-6 carried by the reverb return
+const STAGE_CLASSES = ['stage-0', 'stage-1', 'stage-2', 'stage-3', 'stage-4'];
+
+function loadChainDraft(storage) {
+  try {
+    const saved = storage ? storage.getItem(CHAIN_KEY) : null;
+    const parsed = saved ? JSON.parse(saved) : null;
+    if (Array.isArray(parsed) && parsed.every((s) => Number.isInteger(s.bus) && Number.isInteger(s.carrier))) return parsed;
+  } catch { /* unreadable: start from the default */ }
+  return [DEFAULT_STAGE];
 }
 
 // Strip groups that fold away to save width; collapsed by default, remembered per browser.
@@ -156,6 +171,8 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
   let routingSelected = false;
   let inputsSelected = false;
   let eqTarget = null;          // { kind: 'in' | 'out', slot }
+  let chainOpen = false;
+  let chainDraft = loadChainDraft(storage);
   const held = new Map();
 
   function enabled() {
@@ -203,7 +220,7 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       qEnabled: b.mode === 0,
     }));
     return {
-      title: `${kind === 'out' ? outputSlotName(slot) : INPUT_EQ_NAMES[slot]} EQ`,
+      title: `${kind === 'out' ? outputSlotName(slot, server.links.buses[slot & ~1] === 1) : INPUT_EQ_NAMES[slot]} EQ`,
       kind,
       slot,
       bands,
@@ -217,6 +234,70 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     const typed = eqValue(field, value);
     server.eq[layout.key][field][index] = typed;      // shown at once; the unit's report confirms or corrects it
     return { kind: 'set_property', prop: layout.base + EQ_FIELDS.indexOf(field), index, value: typed };
+  }
+
+  // ---- the monitor chain ----
+  function chainStages() {
+    const chain = server.chain;
+    return chain.on ? chain.stages.map((s) => ({ bus: s.bus, carrier: s.carrier })) : chainDraft;
+  }
+
+  function saveChainDraft() {
+    try { storage?.setItem(CHAIN_KEY, JSON.stringify(chainDraft)); } catch { /* private mode: keep it for this page */ }
+  }
+
+  function stageBands(slot, stage) {
+    return eqBands('out', slot).map((b) => ({
+      ...b,
+      control: `eqb:out:${slot}:${b.band}`,
+      point: `eqpt:out:${slot}:${b.band}`,
+      modes: modesFor(EQ.out.bands, b.band).map((value) => ({ value, label: MODE_LABELS[value] })),
+      gainEnabled: b.mode !== 3,
+      qEnabled: b.mode === 0,
+      stage,
+      cls: STAGE_CLASSES[stage],
+    }));
+  }
+
+  function chainView() {
+    if (!chainOpen || !server?.chain) return null;
+    const chain = server.chain;
+    const stages = chainStages();
+    const label = (list, key, value) => list.find((o) => o[key] === value)?.label ?? `${key} ${value}`;
+    const rows = stages.map((s, k) => ({
+      index: k + 1,
+      bus: s.bus,
+      carrier: s.carrier,
+      label: label(chain.stage_options, 'bus', s.bus),
+      carrierLabel: label(chain.carrier_options, 'input', s.carrier),
+      slot: s.bus,
+      eq: `eq:out:${s.bus}`,
+      remove: `chainrm:${k}`,
+      cls: STAGE_CLASSES[k + 1],
+    }));
+    const usedBuses = new Set(stages.map((s) => s.bus));
+    const usedCarriers = new Set(stages.map((s) => s.carrier));
+    const sections = server.eq ? [{ index: 0, label: 'Main 1-2', slot: 0, cls: STAGE_CLASSES[0], bands: stageBands(0, 0) },
+      ...rows.map((r) => ({ index: r.index, label: r.label, slot: r.slot, cls: r.cls, bands: stageBands(r.slot, r.index) }))] : [];
+    const bands = sections.flatMap((sec) => sec.bands);
+    return {
+      on: chain.on,
+      stages: rows,
+      canAdd: stages.length < chain.max_stages,
+      stageOptions: chain.stage_options.filter((o) => !usedBuses.has(o.bus)).map((o) => ({
+        value: o.bus, label: o.feeds.length ? `${o.label} (feeds ${o.feeds.join(', ')})` : o.label,
+      })),
+      carrierOptions: chain.carrier_options.filter((o) => !usedCarriers.has(o.input)).map((o) => ({
+        value: o.input, label: o.live ? `${o.label} (in use)` : o.label,
+      })),
+      sections,
+      curve: { freqs: EQ_FREQS, db: response(bands, EQ_FREQS) },
+      bands,
+    };
+  }
+
+  function chainAction(on, stages = chainStages()) {
+    return { kind: 'set_chain', on, stages: on ? stages.map((s) => ({ bus: s.bus, carrier: s.carrier })) : [] };
   }
 
   function tabOf(bus) {
@@ -398,8 +479,10 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
         mute: { control: `master_mute:${bus}`, on: server.bus_master.mute[bus] === 1 },
         link: { control: `bus_link:${bus & ~1}`, on: server.links.buses[bus & ~1] === 1 },
         eq: eqButton('out', eqSlotForBus(bus, server.links.buses[bus & ~1] === 1)),
+        chain: bus === 0 && server.chain ? { control: 'chain', on: server.chain.on } : null,
       },
       eq: eqView(),
+      chain: chainView(),
       routing: [],
       inputs: [],
     };
@@ -480,10 +563,38 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     }
     if (g.type === 'open_eq' && kind === 'eq') {
       eqTarget = { kind: rest[0], slot: Number(rest[1]) };
+      chainOpen = false;
       return null;
     }
     if (g.type === 'close_eq') {
       eqTarget = null;
+      return null;
+    }
+    if (g.type === 'open_chain') {
+      chainOpen = true;
+      eqTarget = null;
+      return null;
+    }
+    if (g.type === 'close_chain') {
+      chainOpen = false;
+      return null;
+    }
+    if (g.type === 'chain_add' || g.type === 'chain_remove') {
+      if (!server?.chain) return null;
+      const stages = chainStages().slice();
+      if (g.type === 'chain_add') {
+        const bus = Number(g.bus), carrier = Number(g.carrier);
+        if (!Number.isInteger(bus) || !Number.isInteger(carrier) || stages.length >= server.chain.max_stages) return null;
+        if (stages.some((s) => s.bus === bus || s.carrier === carrier)) return null;
+        stages.push({ bus, carrier });
+      } else {
+        if (!(g.index >= 0 && g.index < stages.length)) return null;
+        stages.splice(g.index, 1);
+      }
+      chainDraft = stages;
+      saveChainDraft();
+      // a chain that is on is rebuilt with its new stages, or switched off when none is left
+      if (server.chain.on && enabled()) return stages.length ? chainAction(true, stages) : chainAction(false);
       return null;
     }
     if (g.type === 'cancel_confirm') {
@@ -501,6 +612,11 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       return action;
     }
     if (!enabled()) return null;
+    if (g.type === 'chain_power' && server?.chain) {
+      if (!g.on) return server.chain.on ? chainAction(false) : null;
+      if (!chainDraft.length) { chainDraft = [DEFAULT_STAGE]; saveChainDraft(); }
+      return chainAction(true, chainDraft);
+    }
     if (kind === 'pan' && !panEnabled(numbers[0], numbers[1])) return null;
     if (g.type === 'eq_set' && kind === 'eqb' && server?.eq) {
       const [eqKind, slot, band, field] = rest;
@@ -563,6 +679,7 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       }
       if (message.type === 'state') {
         server = structuredClone(message);
+        if (server.chain?.on) { chainDraft = server.chain.stages.map((s) => ({ bus: s.bus, carrier: s.carrier })); saveChainDraft(); }
         ({ status, read_only_reason: readOnlyReason } = message);
         loops = message.loops ?? [];
         if (selectedBus === null && message.layout.tabs.length) selectedBus = message.layout.tabs[0].bus;
