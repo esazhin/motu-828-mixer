@@ -239,12 +239,21 @@ mixer-input pair patched to `76+bus`/`77+bus`) → an Ana bus pair (its 3-band E
 Switching off returns every touched slot to its **native source** (the table above: slot `76+i` ← Mic/Line
 `32+LocalInputs[i]`, S/PDIF 58/59, ADAT 60–75, Computer `i−28`, reverb 90/91; jacks 37/39 ← 76/77), so nothing is
 stored. On: links, carrier silenced on every other bus, carrier patches, stage levels, jacks last. The feedback
-guard refuses any bus whose mix reaches a mixer input live on that same bus. **[LIVE] W8 (2026-11-08, partial):**
-switched on by the user with the reverb return (slots 118/119) as the carrier, the chain was audible on the Main
-jacks **with the built-in reverb applied**, and off restored the hardware path. So slots 118/119 feed the reverb
-processor, not the mixer directly: the mixer's inputs 42-43 are the processor's output. The reverb return is
-therefore never a carrier (the service refuses it); the default carrier is ADAT B 7-8 (slots 102/103, W7). The
-meter comparison (stage = Main) is still pending.
+guard refuses any bus whose mix reaches a mixer input live on that same bus. The carrier is **soloed** on its stage
+pair (kiMixSolo on the primary cell), so whatever else that pair mixes today is silent while the chain is on and
+back untouched when it is off.
+
+**[LIVE] W8 (2026-11-08/09), three findings.** (1) Switched on by the user with the reverb return (slots 118/119)
+as the carrier, the chain was audible on the Main jacks **with the built-in reverb applied**: slots 118/119 feed
+the reverb processor, not the mixer directly, so the reverb return is never a carrier (the service refuses it) and
+the default is ADAT B 7-8 (slots 102/103). (2) On the user's chain (Main → ADAT A 5-6 → Ana 7-8 → jacks) the stage
+read **+6 to +7 dB over Main**, flat EQ, stereo intact: Ana 7-8 also mixed Computer 1-2 and 9-10 and S/PDIF, so the
+music arrived twice, coherently. With the carrier **soloed** on bus 8 the stage matched Main at **0.0 dB** (Main L
+76 against stage L 84 recorded side by side on Computer in 1-2, 3 s, residual −25 dB). The solo is now part of the
+on/off plans. (3) Read-backs from a fresh sync: on → jacks 84/85, carrier slots 92/93 = 76/77, cell at unity,
+unmuted; off → 37/39 = 76/77, 92/93 = 68/69 (ADAT A 5-6), carrier cell −∞; no loop reported. Latency of the
+extra stage: peak at lag 0 with the sub-sample estimate at **0.46 sample (≈ 10 µs)**, so under one sample for
+this pass. Pan on a linked input pair has no effect on the unit (CueMix hides it): L → L, R → R.
 
 **[LIVE] Mixer latency (2026-11-08):** measured at 48 kHz by recording two computer-in channels at once (host out 1
 looped straight back through the patch table as the reference, the path under test on the other channel) and
@@ -359,7 +368,7 @@ Each test reads the value, writes a new one, reads it back from the stream, then
 | ~~W4~~ | dropped: §4.5 is settled from CueMix code (one cell per action, first channel/bus), so no live test is needed | stereo semantics (§4.5) [CODE] |
 | W5 ✅ | kFPGAPatch: an **unused** output slot (Line out 10, slot 40) → 127 → restore | **PASS 2026-10-12**: routing write path |
 | W7 ✅ | kFPGAPatch mixer-input slot 102 (ADAT B 7 → input 26): 74 → 127 → 76 (Main mix L) → restored 74; flow proved on the jackless Ana 5 bus meter | **PASS 2026-11-08**: mixer-input slots are writable; a bus mix can feed a mixer input (§5) |
-| W8 ◐ | monitor chain on (Main → carrier → Ana 5-6 → jacks), stage meter = Main meter, off → every slot native | **PARTIAL 2026-11-08**: on/off heard live by the user; through the reverb return the reverb was applied (slots 118/119 feed the reverb processor), so the carrier moved to ADAT B 7-8. Meter comparison pending (§5, docs/monitor-chain.md) |
+| W8 ✅ | monitor chain on (Main → carrier → Ana stage → jacks), stage = Main, off → every slot native, latency | **PASS 2026-11-09** on Main → ADAT A 5-6 → Ana 7-8: stage = Main at 0.0 dB once the carrier is soloed on its stage (unsoloed it was +6 dB: the stage's own mix carried the music too), stereo intact, read-backs exact on and off, extra stage < 1 sample (0.46 interpolated). Reverb return excluded as a carrier (the reverb is applied on its path). §5, docs/monitor-chain.md |
 | W6 ✅ | kiGain 5001 index 9 (Line 10 trim) 9 → 10 dB → read back → restored to 9 | **PASS 2026-11-08**: one-byte input-block write path (§4.8). Frame `f0 00 00 3b 00 01 00 02 13 09 00 09 00 01 0a f7`; the new value was read back from a fresh full sync, not from the echo. kPad 5003 confirmed from the Inputs page on the unit the same day |
 
 Safety: start with W1 on a muted, unused cell. Switch 48V (5004) only on a mic input with nothing connected; change gain or pad only on an input with nothing connected or by ±1 dB, and restore. Keep `amidi` or the

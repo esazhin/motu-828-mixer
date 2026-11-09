@@ -245,7 +245,8 @@ def _chain_json(state):
         "stages": [{"bus": s.bus, "carrier": s.carrier, "label": s.label, "carrier_label": s.carrier_label}
                    for s in recognised.stages],
         "max_stages": _chain.MAX_STAGES,
-        "stage_options": [{"bus": b, "label": _chain.pair_label(_topology.BUS_NAMES, b), "feeds": _fed_pairs(state, b)}
+        "stage_options": [{"bus": b, "label": _chain.pair_label(_topology.BUS_NAMES, b), "feeds": _fed_pairs(state, b),
+                           "live_inputs": len(_chain.live_inputs(state, b))}
                           for b in _chain.STAGE_BUSES],
         "carrier_options": [{"input": i, "label": _chain.pair_label(_topology.INPUT_NAMES, i),
                              "live": _live_anywhere(state, i) or _live_anywhere(state, i + 1)}

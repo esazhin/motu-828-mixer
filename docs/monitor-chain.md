@@ -4,7 +4,7 @@
 > |---|---|
 > | id | `monitor-chain` |
 > | created | `2026-11-08` |
-> | status | draft · locked (2026-11-08) · **delivered** (2026-11-08; W8 on/off heard live, meter check pending) · verified |
+> | status | draft · locked (2026-11-08) · delivered (2026-11-08) · **verified** (2026-11-09, W8 ✅) |
 > | builds on | [PROTOCOL-SPEC.md](../PROTOCOL-SPEC.md) §4.6 (EQ), §5 (routing, W7, mixer latency) |
 
 ## 1 · Intent
@@ -50,12 +50,14 @@ One atomic action, planned fully before anything is sent, refused as a whole if 
 1. Link each stage pair (koMixStereo) and each carrier pair (kiMixStereo) if not already linked.
 2. Silence each carrier (−∞) on **every bus but its own stage**, so the mix it is about to carry cannot feed back.
 3. Patch carrier n's two slots (`76 + input`) to stage n−1's mix outputs (`76 + bus`, `77 + bus`).
-4. On stage n: carrier n at 0 dB (the pair's primary cell, §4.5), unmuted; stage n's master at 0 dB, unmuted.
+4. On stage n: carrier n at 0 dB (the pair's primary cell, §4.5), unmuted, **soloed** (so the stage pair's own
+   mix, whatever it carries today, is silent while the chain is on); stage n's master at 0 dB, unmuted.
 5. Main jacks (slots 37, 39) ← last stage's mix outputs.
 
 Order matters for silence: silence, patches, levels, then the jacks last, so the monitors never hear a half-built
 chain and no carrier ever carries a mix it is live on. Switching off reverses the order: jacks first (back to
-76/77), carriers to −∞ on their stage, carrier slots back to native, links left as they were found.
+76/77), carriers unsoloed and to −∞ on their stage, carrier slots back to native, links left as they were found.
+The solo is why a stage's own mix needs no stored state: its faders are never touched.
 
 ### 2.3 Guards
 
@@ -64,8 +66,9 @@ chain and no carrier ever carries a mix it is live on. Switching off reverses th
   not only chain actions, so a later fader move cannot close a loop either.
 - **Ceiling**: stage buses are Ana pairs only; carriers are inputs 10–43 only; at most four stages; a bus or
   input appears in the chain once.
-- **Conflicts shown, not hidden**: a stage whose jacks carry something today (Ana 1-2 → Line out 3-4 …) and a
-  carrier whose native source is live in a mix are allowed, but the picker says what is taken over.
+- **Conflicts shown, not hidden**: a stage whose jacks carry something today (Ana 1-2 → Line out 3-4 …), a stage
+  pair with live inputs of its own (soloed out while on) and a carrier whose native source is live in a mix are
+  allowed, but the picker says what is taken over.
 - The write gate, allowlist and EQ range checks apply unchanged.
 
 ### 2.4 Recognising a chain
@@ -98,13 +101,13 @@ built by this service, by CueMix or by hand is shown the same way, and a restart
 
 | id | scenario | passes when |
 |---|---|---|
-| C1 | On with one stage (Ana 5-6, carrier ADAT B 7-8) while music plays on Main | Main jacks read 82/83, slots 102/103 read 76/77, stage meter equals Main's meter ±0.5 dB, no loop reported |
-| C2 | Off | every touched slot and cell equals its native value; Main jacks 76/77 |
+| C1 | On with one stage while music plays on Main | Main jacks read the stage's outputs, the carrier slots read 76/77, stage level equals Main's ±0.5 dB, no loop reported. **Passed 2026-11-09** (Ana 7-8 carried by ADAT A 5-6: 0.0 dB by side-by-side recording, once the carrier is soloed; +6 dB before, from the stage's own mix) |
+| C2 | Off | every touched slot and cell equals its native value; Main jacks 76/77. **Passed 2026-11-09** (fresh sync) |
 | C3 | Two stages | Main jacks read the second stage; the first stage's carrier reads 76/77, the second's reads the first stage's outputs |
 | C4 | Self-feed attempt (raise a carrier on its own source bus) | refused with the path named; nothing sent |
 | C5 | Restart with a chain on | the page shows the chain on, with the right stages, without any write |
 | C6 | Combined EQ | editing a band in the combined view writes that one stage's property; the summed curve equals the product of the stage curves |
-| C7 | Latency (live) | the chained Main jack output lags the direct one by exactly n samples for n stages |
+| C7 | Latency (live) | the chained Main jack output lags the direct one by about n samples for n stages. **Measured 2026-11-09**: one stage, peak at lag 0, 0.46 sample interpolated (≈ 10 µs) |
 
 ## 3 · Binding design
 
@@ -126,4 +129,7 @@ Role: binding.
 - First carrier pair: ~~the reverb return~~ **ADAT B 7-8** (changed 2026-11-08 after the first live switch-on:
   the reverb return carries the built-in reverb, so the chain through it was audibly reverberant). First
   stage: **Ana 5-6**.
+- The carrier is **soloed on its stage** (added 2026-11-09, W8): a stage pair is rarely empty, and anything else it
+  mixes adds to the chain. On this unit Ana 7-8 carried Computer 1-2 as well, so the music arrived twice and the
+  stage ran 6 dB hot. Solo silences the rest without touching their faders, and off simply unsolos.
 - **Phones are out of scope**, as target and as stage. Room correction only; headphone correction is done by VSX.

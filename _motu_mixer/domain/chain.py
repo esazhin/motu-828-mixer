@@ -110,6 +110,11 @@ def _live(state, bus, inp) -> bool:
     return gain is not None and not gain.is_silent and not state.muted(cell)
 
 
+def live_inputs(state, bus: int) -> tuple[int, ...]:
+    """The inputs live on either bus of the pair (bus, bus + 1): what a stage silences by soloing its carrier (W8)."""
+    return tuple(sorted({inp for b in (bus, bus + 1) for inp in range(44) if _live(state, b, inp)}))
+
+
 def recognise(state) -> ChainState:
     """The chain the unit's state describes: the stages feeding the Main jacks, each with the carrier that feeds it."""
     left, right = state.source(OutputSlot(MAIN_JACKS[0])), state.source(OutputSlot(MAIN_JACKS[1]))
@@ -140,7 +145,10 @@ def _patch(state, slot: int, code: int, writes):
 
 
 def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
-    """The ordered writes that build the chain: links, carriers silenced elsewhere, patches, stage levels, jacks last."""
+    """The ordered writes that build the chain: links, carriers silenced elsewhere, patches, stage levels, jacks last.
+
+    The carrier is soloed on its stage, so whatever else the stage pair mixes today stays silent while the chain is
+    on and comes back untouched when it is off (W8: Ana 7-8 carrying Computer 1-2 as well doubled the music, +6 dB)."""
     stages = tuple(stages)
     if (refusal := validate(stages)) is not None:
         return refusal
@@ -172,6 +180,8 @@ def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
             writes.append(Write(Address(P.MIX_FADER, cell.index), Gain(1.0)))
         if state.muted(cell):
             writes.append(Write(Address(P.MIX_MUTE, cell.index), False))
+        if not state.soloed(cell):
+            writes.append(Write(Address(P.MIX_SOLO, cell.index), True))
         if state.master_gain(BusIndex(stage.bus)) != Gain(1.0):
             writes.append(Write(Address(P.BUS_FADER, stage.bus), Gain(1.0)))
         if state.master_muted(BusIndex(stage.bus)):
@@ -182,7 +192,7 @@ def plan_on(stages, state) -> tuple[Write, ...] | Refusal:
 
 
 def plan_off(state) -> tuple[Write, ...] | Refusal:
-    """The ordered writes that hand everything back: jacks first, then each stage's carrier silenced and unpatched."""
+    """The ordered writes that hand everything back: jacks first, then each stage's carrier unsoloed, silenced, unpatched."""
     chain = recognise(state)
     if not chain.on:
         return Refusal(RefusalKind.CHAIN, "no chain is on")
@@ -193,6 +203,8 @@ def plan_off(state) -> tuple[Write, ...] | Refusal:
     layout = topology.StereoLayout.from_links(input_links, bus_links)
     for stage in reversed(chain.stages):
         cell = layout.primary_cell(stage.carrier, stage.bus)
+        if state.soloed(cell):
+            writes.append(Write(Address(P.MIX_SOLO, cell.index), False))
         gain = state.gain(cell)
         if gain is not None and not gain.is_silent:
             writes.append(Write(Address(P.MIX_FADER, cell.index), Gain(0.0)))

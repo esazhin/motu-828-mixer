@@ -664,12 +664,12 @@ function chainState({ on = false } = {}) {
   const state = eqState();
   state.layout.tabs.push({ label: 'Ana 5-6', bus: 6, stereo: true, pan: [] });
   state.links.buses[6] = 1;
-  const stageOptions = [[2, 'Ana 1-2', ['Line out 3-4']], [4, 'Ana 3-4', []], [6, 'Ana 5-6', []], [8, 'Ana 7-8', ['Line out 9-10']]];
+  const stageOptions = [[2, 'Ana 1-2', ['Line out 3-4'], 0], [4, 'Ana 3-4', [], 1], [6, 'Ana 5-6', [], 0], [8, 'Ana 7-8', ['Line out 9-10'], 4]];
   state.chain = {
     on,
     stages: on ? [{ bus: 6, carrier: 26, label: 'Ana 5-6', carrier_label: 'ADAT B 7-8' }] : [],
     max_stages: 4,
-    stage_options: stageOptions.map(([bus, label, feeds]) => ({ bus, label, feeds })),
+    stage_options: stageOptions.map(([bus, label, feeds, live_inputs]) => ({ bus, label, feeds, live_inputs })),
     carrier_options: [{ input: 40, label: 'Computer 13-14', live: true }, { input: 26, label: 'ADAT B 7-8', live: false }],
   };
   // Ana 5-6's EQ (slot 6): a 60 Hz low shelf at -4 dB
@@ -700,7 +700,8 @@ test('the chain window lists Main, the draft stages and the jacks, offers only u
     [[1, 6, 26, 'Ana 5-6', 'ADAT B 7-8', 'eq:out:6', 'chainrm:0', 'stage-1']], 'the default draft: Ana 5-6 carried by ADAT B 7-8');
   assert.equal(chain.canAdd, true);
   assert.deepEqual(chain.stageOptions, [
-    { value: 2, label: 'Ana 1-2 (feeds Line out 3-4)' }, { value: 4, label: 'Ana 3-4' }, { value: 8, label: 'Ana 7-8 (feeds Line out 9-10)' },
+    { value: 2, label: 'Ana 1-2 (feeds Line out 3-4)' }, { value: 4, label: 'Ana 3-4 (1 live input soloed out while on)' },
+    { value: 8, label: 'Ana 7-8 (feeds Line out 9-10; 4 live inputs soloed out while on)' },
   ]);
   assert.deepEqual(chain.carrierOptions, [{ value: 40, label: 'Computer 13-14 (in use)' }]);
   assert.deepEqual(chain.sections.map((s) => [s.index, s.label, s.slot, s.cls, s.bands.length]), [[0, 'Main 1-2', 0, 'stage-0', 3], [1, 'Ana 5-6', 6, 'stage-1', 3]]);

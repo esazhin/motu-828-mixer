@@ -372,9 +372,13 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       on: chain.on,
       stages: rows,
       canAdd: stages.length < chain.max_stages,
-      stageOptions: chain.stage_options.filter((o) => !usedBuses.has(o.bus)).map((o) => ({
-        value: o.bus, label: o.feeds.length ? `${o.label} (feeds ${o.feeds.join(', ')})` : o.label,
-      })),
+      stageOptions: chain.stage_options.filter((o) => !usedBuses.has(o.bus)).map((o) => {
+        const notes = [
+          ...(o.feeds.length ? [`feeds ${o.feeds.join(', ')}`] : []),
+          ...(o.live_inputs ? [`${o.live_inputs} live input${o.live_inputs === 1 ? '' : 's'} soloed out while on`] : []),
+        ];
+        return { value: o.bus, label: notes.length ? `${o.label} (${notes.join('; ')})` : o.label };
+      }),
       carrierOptions: chain.carrier_options.filter((o) => !usedCarriers.has(o.input)).map((o) => ({
         value: o.input, label: o.live ? `${o.label} (in use)` : o.label,
       })),

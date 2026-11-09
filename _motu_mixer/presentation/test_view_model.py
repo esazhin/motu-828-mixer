@@ -330,13 +330,15 @@ def test_the_state_carries_the_recognised_chain_and_the_pairs_a_chain_may_use():
     chain = body["chain"]
     assert chain["on"] is False and chain["stages"] == [] and chain["max_stages"] == 4
     assert [o["bus"] for o in chain["stage_options"]] == [2, 4, 6, 8]
-    assert chain["stage_options"][2] == {"bus": 6, "label": "Ana 5-6", "feeds": []}
+    assert chain["stage_options"][2] == {"bus": 6, "label": "Ana 5-6", "feeds": [], "live_inputs": 0}
     assert chain["stage_options"][0]["feeds"] == [] and chain["stage_options"][0]["label"] == "Ana 1-2"
     assert [o["input"] for o in chain["carrier_options"]] == list(range(10, 42, 2)), "never the reverb return: the reverb is on its path"
     assert chain["carrier_options"][8] == {"input": 26, "label": "ADAT B 7-8", "live": False}
     state = unit(patch={53: 78, 56: 79}, faders=[(0, 40)])      # Line out 3-4 fed by Ana 1-2; Computer 13 live on Main
     chain = snapshot_json(Snapshot(state=state, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
     assert chain["stage_options"][0]["feeds"] == ["Line out 3-4"]
+    assert next(o for o in chain["stage_options"] if o["bus"] == 0 + 2)["live_inputs"] == 0
+    assert snapshot_json(Snapshot(state=unit(faders=[(8, 28), (9, 29)]), status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]["stage_options"][3]["live_inputs"] == 2
     assert next(o for o in chain["carrier_options"] if o["input"] == 40)["live"] is True
     on = snapshot_json(Snapshot(state=one_stage_on(), status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
     assert on["on"] is True
