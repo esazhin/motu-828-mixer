@@ -563,19 +563,25 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (!gesture || !gesture.startsWith('drag-')) return;
     event.preventDefault();
     const control = node.getAttribute('data-control');
+    // a second press within 350 ms resets: 0 dB on a fader, centre on a pan, 0 dB gain on an EQ point. Detected here
+    // because the pointer is captured during a drag, so the browser's own dblclick would land on the captor instead.
+    const now = event.timeStamp ?? Date.now();
+    const twice = lastPress && lastPress.control === control && now - lastPress.time < DOUBLE_PRESS_MS;
+    lastPress = twice ? null : { control, time: now };
     if (gesture === 'drag-eq') {
+      if (twice) {
+        client.gesture({ type: 'eq_zero', control });
+        return;
+      }
       drag = { control, axis: 'eq', pointerId: event.pointerId, rect: eqGraph.getBoundingClientRect(), element: eqGraph };
       eqGraph.setPointerCapture(event.pointerId);
       client.gesture({ type: 'eq_drag', control, ...eqPosition(event) });
       return;
     }
-    const now = event.timeStamp ?? Date.now();
-    if (lastPress && lastPress.control === control && now - lastPress.time < DOUBLE_PRESS_MS) {
-      lastPress = null;
+    if (twice) {
       client.gesture({ type: 'reset', control });
       return;
     }
-    lastPress = { control, time: now };
     drag = {
       control: node.getAttribute('data-control'),
       axis: gesture.slice(5),
@@ -627,15 +633,6 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (gesture === 'chain_save' && chainPresetRefs) {
       const name = chainPresetRefs.name.value.trim() || chainPresetRefs.pick.value;
       if (name) client.gesture({ type: 'chain_save', name });
-    }
-  });
-
-  // a double-click on an EQ point zeroes that band's gain
-  document.addEventListener('dblclick', (event) => {
-    const node = controlOf(event.target);
-    if (node && node.getAttribute('data-gesture') === 'drag-eq') {
-      event.preventDefault();
-      client.gesture({ type: 'eq_zero', control: node.getAttribute('data-control') });
     }
   });
 

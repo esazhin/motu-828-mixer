@@ -127,15 +127,26 @@ test('the window\'s controls give their gestures: power, remove, add with the pi
   ]);
 });
 
-test('a redraw keeps the chain window where it was scrolled, and a double-click on a point zeroes its band', () => {
+test('a redraw keeps the chain window where it was scrolled, and a second press on a point within 350 ms zeroes its band', () => {
   const { document, gestures } = start({ on: true });
   const host = document.getElementById('chain');
-  host.children[0].scrollTop = 240;
+  const panel = host.children[0];
+  panel.scrollTop = 240;
   fire(find(document, 'eqb:out:6:0:bypass'), 'click');
-  assert.equal(host.children[0].scrollTop, 240, 'the new panel took over the scroll position');
+  assert.equal(host.children[0], panel, 'the same panel node is refilled, so the browser keeps its scroll position');
+  assert.equal(panel.scrollTop, 240);
   gestures.length = 0;
-  fire(find(document, 'eqpt:out:6:0'), 'dblclick');
-  assert.deepEqual(gestures, [{ type: 'eq_zero', control: 'eqpt:out:6:0' }]);
+  // the graph captures the pointer during a drag, so this is detected from the presses, not the browser's dblclick
+  fire(find(document, 'eqpt:out:6:0'), 'pointerdown', { timeStamp: 1000 });
+  fire(find(document, 'eqpt:out:6:0'), 'pointerup', { timeStamp: 1060 });
+  fire(find(document, 'eqpt:out:6:0'), 'pointerdown', { timeStamp: 1200 });
+  assert.deepEqual(gestures.map((g) => g.type), ['eq_drag', 'release', 'eq_zero']);
+  assert.deepEqual(gestures.at(-1), { type: 'eq_zero', control: 'eqpt:out:6:0' });
+  // a press on another point, or one later than 350 ms, is a drag
+  fire(find(document, 'eqpt:out:6:1'), 'pointerdown', { timeStamp: 1300 });
+  fire(find(document, 'eqpt:out:6:1'), 'pointerup', { timeStamp: 1350 });
+  fire(find(document, 'eqpt:out:6:1'), 'pointerdown', { timeStamp: 1800 });
+  assert.ok(!gestures.slice(3).some((g) => g.type === 'eq_zero'));
 });
 
 test('a stage band in the combined view edits that stage\'s own property', () => {
