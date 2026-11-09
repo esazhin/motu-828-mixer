@@ -88,6 +88,39 @@
     border-radius: 8px; padding: 6px 8px; width: 100%; min-width: 0;
   }
   select:focus { outline: none; border-color: var(--cyan); box-shadow: var(--glow); }
+  /* Inputs page: one strip per analog input, laid out like a mixer strip */
+  .strip.input .jack { height: 14px; font-size: 9px; letter-spacing: 0.04em; color: var(--muted); white-space: nowrap; }
+  .strip.input.mic { border-color: rgba(255, 197, 61, 0.3); }
+  .strip.input.mic .handle { fill: var(--amber); filter: drop-shadow(0 0 4px rgba(255, 197, 61, 0.9)); }
+  .fader.disabled { opacity: 0.4; }
+  .gain-field {
+    width: 52px; padding: 3px 4px; text-align: center; color: var(--text); background: var(--track);
+    border: 1px solid var(--cyan-dim); border-radius: 6px; -moz-appearance: textfield;
+  }
+  .gain-field::-webkit-outer-spin-button, .gain-field::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .gain-field:focus { outline: none; border-color: var(--cyan); box-shadow: var(--glow); }
+  .gain-field[disabled] { opacity: 0.3; }
+  .toggle.phase.on { color: var(--bg-deep); background: #b28cff; border-color: #b28cff; box-shadow: 0 0 10px rgba(178, 140, 255, 0.7); }
+  .toggle.pad.on { color: var(--bg-deep); background: var(--cyan); border-color: var(--cyan); box-shadow: var(--glow); }
+  .toggle.phantom { font-size: 11px; letter-spacing: 0.04em; }
+  .toggle.phantom.on { color: #fff; background: #ff3b5c; border-color: #ff3b5c; box-shadow: 0 0 10px rgba(255, 59, 92, 0.7); }
+  /* the 48V confirmation */
+  #confirm { display: none; }
+  body[data-confirm="open"] #confirm {
+    display: flex; position: fixed; inset: 0; z-index: 20; align-items: center; justify-content: center;
+    background: rgba(1, 12, 14, 0.72); backdrop-filter: blur(4px); padding: 12px;
+  }
+  .confirm-panel {
+    width: min(420px, 100%); padding: 18px 20px; display: flex; flex-direction: column; gap: 12px;
+    background: linear-gradient(160deg, rgba(10, 66, 72, 0.97), rgba(3, 24, 27, 0.98));
+    border: 1px solid rgba(255, 59, 92, 0.45); border-radius: 18px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 59, 92, 0.12);
+  }
+  .confirm-title { margin: 0; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: #ff6b85; text-shadow: 0 0 8px rgba(255, 59, 92, 0.5); }
+  .confirm-text { margin: 0; color: var(--text); line-height: 1.45; }
+  .confirm-remember { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .confirm-remember input { accent-color: var(--cyan); width: 16px; height: 16px; margin: 0; }
+  .confirm-actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .confirm-ok { color: #fff; background: #ff3b5c; border-color: #ff3b5c; font-weight: 700; box-shadow: 0 0 10px rgba(255, 59, 92, 0.6); }
   .eq-open { font-size: 11px; letter-spacing: 0.06em; }
   .eq-open.on { color: var(--bg-deep); background: #b28cff; border-color: #b28cff; box-shadow: 0 0 10px rgba(178, 140, 255, 0.7); }
   #eq { display: none; }
@@ -161,6 +194,7 @@
 <main id="strips"></main>
 <section id="routing"></section>
 <div id="eq"></div>
+<div id="confirm"></div>
 <script type="module">
   import { startApp } from './app.js';
   startApp({ document, WebSocket, setTimeout: (fn, ms) => setTimeout(fn, ms), location });

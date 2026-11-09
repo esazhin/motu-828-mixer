@@ -248,7 +248,7 @@ EVERY_KIND = [
 REFUSED = [
     (SetInputLink(input=5, on=True), RefusalKind.ODD_LINK_INDEX),
     (SetRouteSlot(slot=86, source=32), RefusalKind.SLOT_NOT_WRITABLE),
-    (SetProperty(5004, 0, 1), RefusalKind.NOT_WRITABLE_PROPERTY),
+    (SetProperty(5005, 0, 1), RefusalKind.NOT_WRITABLE_PROPERTY),
     (SetProperty(5000, 0, -10), RefusalKind.NOT_WRITABLE_PROPERTY),
     (SetLevel(bus=16, input=44, db=0.0), RefusalKind.INDEX_RANGE),
     (SetProperty(1016, 704, 1.0), RefusalKind.INDEX_RANGE),
@@ -282,3 +282,19 @@ def test_eq_property_writes_carry_the_signed_value_and_out_of_range_ones_are_ref
     for refused in (SetProperty(1025, 1, -25.0), SetProperty(1024, 0, 5), SetProperty(1022, 1, 3)):
         outcome = plan(refused, state)
         assert isinstance(outcome, Refusal) and outcome.kind is RefusalKind.VALUE_RANGE
+
+
+def test_input_block_writes_are_whole_db_bytes_within_range():
+    state = MixerState()
+    assert plan(SetProperty(5001, 0, 47), state) == (Write(Address(5001, 0), 47),)         # Mic 1 gain
+    assert plan(SetProperty(5001, 9, 20.0), state) == (Write(Address(5001, 9), 20),)       # Line 10 trim
+    assert plan(SetProperty(5002, 3, True), state) == (Write(Address(5002, 3), 1),)        # Line 4 polarity
+    assert plan(SetProperty(5003, 1, 1), state) == (Write(Address(5003, 1), 1),)           # Mic 2 pad
+    for refused in (SetProperty(5001, 0, 75), SetProperty(5001, 2, 21), SetProperty(5001, 2, 12.5), SetProperty(5003, 0, 2)):
+        outcome = plan(refused, state)
+        assert isinstance(outcome, Refusal) and outcome.kind is RefusalKind.VALUE_RANGE, refused
+    assert plan(SetProperty(5004, 0, True), state) == (Write(Address(5004, 0), 1),)        # Mic 1 48V
+    outcome = plan(SetProperty(5005, 0, 1), state)                                           # jack detect is read-only
+    assert isinstance(outcome, Refusal) and outcome.kind is RefusalKind.NOT_WRITABLE_PROPERTY
+    outcome = plan(SetProperty(5001, 12, 0), state)
+    assert isinstance(outcome, Refusal) and outcome.kind is RefusalKind.INDEX_RANGE

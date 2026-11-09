@@ -33,7 +33,8 @@ def create_app(service, session, hub, static_dir, view_model=_view_model):
     static_dir = Path(static_dir)
 
     def asset(name, media_type):
-        return lambda: FileResponse(static_dir / name, media_type=media_type)
+        # revalidate on every load (ETag / Last-Modified), so a service update never needs a hard refresh
+        return lambda: FileResponse(static_dir / name, media_type=media_type, headers={"cache-control": "no-cache"})
 
     for path, (name, media_type) in _ASSETS.items():
         app.add_api_route(path, asset(name, media_type), methods=["GET"])

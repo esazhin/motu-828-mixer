@@ -22,13 +22,17 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
   response curve with draggable band points, plus mode, frequency, gain and Q per band.
 - **Routing:** any source to any output, including **direct input → output routes** (for example Line 7-8 straight
   to S/PDIF out) without using up a mix bus.
+- **Inputs page:** mixer-style strips with preamp gain on Mic 1-2 (0-74 dB), trim on Line 3-10 (0-20 dB), the
+  input's live meter in the fader track, polarity on each, pad and 48V on the mics, and the insert return's gain when
+  one is plugged in. Switching 48V on asks for confirmation (with a "don't ask again" box, remembered per browser).
 - Double-click a fader or master to set 0 dB, or a pan to centre it.
 - Any browser on your network; no login, no build step.
 
 ## Safety
 
-- **Never writes** phantom power (48V), preamp gain, pad or output trim. Writes are limited to an allowlist of
-  mixer, routing and EQ properties, and EQ values outside CueMix's ranges are refused rather than clamped.
+- **Never writes** output trim. Writes are limited to an allowlist of mixer, routing, EQ and input-block properties
+  (preamp gain, polarity, pad, 48V), and values outside CueMix's ranges are refused rather than clamped. The page asks
+  before switching 48V on.
 - **S/PDIF feedback guard:** any change that would carry S/PDIF in to S/PDIF out is refused, directly or through a
   mix or the reverb. This protects setups such as a modeller connected over S/PDIF in both directions.
 - **Read-only** on an unverified model or protocol version.
@@ -62,7 +66,7 @@ Open `http://<this-machine>:8280` from any device on the LAN (or `http://localho
 `syncing` while the 828 sends its full state, then `synced`. Other states: `no 828 connected`, `no 828 answered`,
 `control port busy`, `disconnected`, `released`, and `Read-only: …`.
 
-Direct links: `/#routing` opens the Routing tab; `/#eq:out:0` opens the Main EQ.
+Direct links: `/#routing` opens the Routing tab; `/#inputs` the Inputs page; `/#eq:out:0` opens the Main EQ.
 
 **As a desktop app:** in Chrome, open the page and choose *Cast, save and share → Create shortcut… → Open as window*.
 

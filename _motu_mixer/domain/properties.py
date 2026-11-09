@@ -29,11 +29,14 @@ class PropertyId(IntEnum):
     BUS_MUTE = 1028
     OUTPUT_TRIM = 5000
     PREAMP_GAIN = 5001
+    PHASE = 5002
     PAD = 5003
     PHANTOM_POWER = 5004
+    JACK_DETECT = 5005
     OPTICAL_MODE = 5006
     PATCH = 5010
     EXPANDER_PATCH = 5020
+    RETURN_DETECT = 5021
     OPTICAL_EXPANDER = 5025
 
 
@@ -79,9 +82,13 @@ PROPERTY_TABLE = {
     P.OUT_EQ_GAIN: PropertySpec(ValueType.F824, 42, True),
     P.OUT_EQ_Q: PropertySpec(ValueType.F824, 42, True),
     P.OUTPUT_TRIM: PropertySpec(ValueType.BYTE, 16, False),
-    P.PREAMP_GAIN: PropertySpec(ValueType.BYTE, 12, False),
-    P.PAD: PropertySpec(ValueType.BYTE, 2, False),
-    P.PHANTOM_POWER: PropertySpec(ValueType.BYTE, 2, False),
+    # analog input block (domain/preamp.py checks every value); the page confirms 48V before switching it on
+    P.PREAMP_GAIN: PropertySpec(ValueType.BYTE, 12, True),
+    P.PHASE: PropertySpec(ValueType.BYTE, 10, True),
+    P.PAD: PropertySpec(ValueType.BYTE, 2, True),
+    P.PHANTOM_POWER: PropertySpec(ValueType.BYTE, 2, True),
+    P.JACK_DETECT: PropertySpec(ValueType.BYTE, 2, False),
+    P.RETURN_DETECT: PropertySpec(ValueType.BYTE, 2, False),
     P.OPTICAL_MODE: PropertySpec(ValueType.BYTE, 2, False),
     P.PATCH: PropertySpec(ValueType.BYTE, 128, True),
     P.EXPANDER_PATCH: PropertySpec(ValueType.BYTE, 128, False),

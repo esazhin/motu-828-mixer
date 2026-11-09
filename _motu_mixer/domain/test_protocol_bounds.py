@@ -7,7 +7,7 @@ PROTOCOL_SPEC = Path(__file__).resolve().parents[2] / "PROTOCOL-SPEC.md"
 
 
 def test_open_items_are_echo_and_the_unrun_write_checks():
-    assert [item.name for item in OPEN_ITEMS] == ["echo", "W2", "W3", "W5"]
+    assert [item.name for item in OPEN_ITEMS] == ["echo", "W2", "W3", "W5", "W6"]
     for item in OPEN_ITEMS:
         assert item.behaviour and item.settled_by
 

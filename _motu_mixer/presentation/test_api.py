@@ -337,11 +337,13 @@ def test_the_page_and_its_modules_are_served_and_no_other_static_file(tmp_path):
     assert page.status_code == 200
     assert page.headers["content-type"].startswith("text/html")
     assert page.text == "// index.html\n"
+    assert page.headers["cache-control"] == "no-cache"
 
     for name in ("app.js", "mixer_client.js", "eq_math.js"):
         module = client.get(f"/{name}")
         assert module.status_code == 200
         assert module.headers["content-type"].startswith("application/javascript")
+        assert module.headers["cache-control"] == "no-cache"      # a browser revalidates, so updates show on a plain reload
         assert module.text == f"// {name}\n"
 
     assert client.get("/app.test.mjs").status_code == 404

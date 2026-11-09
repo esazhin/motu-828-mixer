@@ -38,4 +38,11 @@ OPEN_ITEMS = (
                   "never for slots 76-119.",
         settled_by="Live W5: kFPGAPatch slot 40 (Line out 10) set to 127, read back, restored.",
     ),
+    OpenItem(
+        name="W6",
+        question="Are one-byte writes to the analog input block (kiGain 5001, kiPhase 5002, kPad 5003, k48V 5004) applied by the unit?",
+        behaviour="Gain is written as whole dB within CueMix's range for that channel (Mic 0-74, Line and returns 0-20), "
+                  "polarity, pad and 48V as 0/1; the page asks before switching 48V on.",
+        settled_by="Live W6: kiGain index 9 (Line 10) raised by 1 dB, read back, then restored.",
+    ),
 )

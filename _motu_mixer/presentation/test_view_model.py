@@ -293,3 +293,32 @@ def test_the_state_and_deltas_carry_both_eqs_decoded():
     assert message["changes"] == [{"prop": "out_eq_gain", "index": 0, "value": -3.0}]
     message = delta_message((Delta(Address(1004, 4), None, encode_value(ValueType.I32, 1000)),))
     assert message["changes"] == [{"prop": "in_eq_freq", "index": 4, "value": 1000}]
+
+
+def test_the_state_and_deltas_carry_the_analog_input_block():
+    from _motu_mixer.domain.properties import ValueType
+    from _motu_mixer.protocol.sysex import encode_value
+
+    state = MixerState()
+    reports = [(5001, 0, 47), (5001, 9, 9), (5002, 3, 1), (5003, 1, 1), (5004, 0, 1), (5005, 1, 1), (5021, 1, 1)]
+    for prop, index, value in reports:
+        state.apply(Report(Address(prop, index), encode_value(ValueType.BYTE, value)))
+    body = snapshot_json(Snapshot(state=state, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))
+    inputs = body["inputs"]
+    assert set(inputs) == {"gain", "phase", "pad", "phantom", "jack", "return_detect"}
+    assert [len(inputs[k]) for k in ("gain", "phase", "pad", "phantom", "jack", "return_detect")] == [12, 10, 2, 2, 2, 2]
+    assert inputs["gain"][0] == 47 and inputs["gain"][9] == 9 and inputs["gain"][1] is None
+    assert inputs["phase"][3] == 1 and inputs["pad"][1] == 1 and inputs["phantom"][0] == 1
+    assert inputs["jack"][1] == 1 and inputs["return_detect"][1] == 1
+    message = delta_message((Delta(Address(5001, 2), None, bytes([17])), Delta(Address(5004, 1), None, bytes([1]))))
+    assert message["changes"] == [{"prop": "in_gain", "index": 2, "value": 17}, {"prop": "in_phantom", "index": 1, "value": 1}]
+    # the capture of 2026-10-12 carries the whole block
+    capture = MixerState()
+    splitter = SysexSplitter()
+    for frame in splitter.feed(bytes.fromhex(CAPTURE.read_text().replace("\n", " "))):
+        report = decode(frame)
+        if isinstance(report, Report):
+            capture.apply(report)
+    live = snapshot_json(Snapshot(state=capture, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["inputs"]
+    assert live["gain"] == [47, 42, 17, 16, 12, 12, 12, 12, 9, 9, 0, 0]
+    assert live["phantom"] == [0, 0] and live["pad"] == [0, 0] and live["phase"] == [0] * 10

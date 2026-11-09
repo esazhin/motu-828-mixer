@@ -5,6 +5,7 @@ from . import properties, topology as _topology
 from .properties import PropertyId as P, ValueType
 from .status import Refusal, RefusalKind
 from .eq import check_eq_value, is_eq_prop
+from .preamp import check_preamp_value, is_preamp_prop
 from .values import Address, BusIndex, Gain, InputIndex, OutputPair, OutputSlot, Pan, Source, Write
 
 
@@ -134,6 +135,9 @@ def _property(action, spec) -> tuple[Write, ...] | Refusal:
         return _link(action.prop, action.index, action.value)
     if is_eq_prop(action.prop):
         value = check_eq_value(action.prop, action.index, action.value)
+        return value if isinstance(value, Refusal) else (Write(Address(action.prop, action.index), value),)
+    if is_preamp_prop(action.prop):
+        value = check_preamp_value(action.prop, action.index, action.value)
         return value if isinstance(value, Refusal) else (Write(Address(action.prop, action.index), value),)
     return (Write(Address(action.prop, action.index), _raw_value(action.prop, entry.value_type, action.value)),)
 

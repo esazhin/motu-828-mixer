@@ -72,6 +72,7 @@ test('receiving the state renders the full view of the selected tab', () => {
   assert.deepEqual(v.tabs, [
     { control: 'tab:0', label: 'Main 1-2', selected: true },
     { control: 'tab:4', label: 'Ana 3', selected: false },
+    { control: 'tab:inputs', label: 'Inputs', selected: false },
     { control: 'tab:routing', label: 'Routing', selected: false },
   ]);
   assert.equal(v.mode, 'mixer');
@@ -498,4 +499,161 @@ test('a storage that throws (private mode) falls back to the defaults', () => {
   client.receive(groupState());
   client.gesture({ type: 'toggle_group', control: 'group:computer' });
   assert.deepEqual(renders.at(-1).groupHeads.map((g) => g.collapsed), [true, false]);
+});
+
+// ---- the Inputs page: analog input block ----
+function inputsState() {
+  const state = stateMessage();
+  state.inputs = {   // the live capture of 2026-10-12: Mic 47/42 dB, Line 3-10 17 16 12 12 12 12 9 9
+    gain: [47, 42, 17, 16, 12, 12, 12, 12, 9, 9, 0, 0],
+    phase: [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+    pad: [0, 1], phantom: [1, 0], jack: [0, 1], return_detect: [0, 1],
+  };
+  return state;
+}
+
+test('the Inputs tab shows one strip per analog input: gain on its own scale with its meter, polarity, pad and 48V on the mics', () => {
+  const { client, view } = recordingClient();
+  client.receive(inputsState());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  const v = view();
+  assert.equal(v.mode, 'inputs');
+  assert.deepEqual(v.strips, []);
+  assert.deepEqual(v.tabs.map((t) => [t.control, t.selected]), [['tab:0', false], ['tab:4', false], ['tab:inputs', true], ['tab:routing', false]]);
+  assert.deepEqual(v.inputs.map((r) => r.label), ['Mic 1', 'Mic 2', 'Line 3', 'Line 4', 'Line 5', 'Line 6', 'Line 7', 'Line 8', 'Line 9', 'Line 10']);
+  const mic1 = v.inputs[0];
+  const off = { position: 0, zone: 'off' };
+  assert.deepEqual(mic1.gain, { control: 'ingain:0', field: 'ingainf:0', position: 47 / 74, value: 47, max: 74, text: '47 dB', meter: off });
+  assert.deepEqual(mic1.phantom, { control: 'inphantom:0', on: true, enabled: true });
+  assert.deepEqual(mic1.pad, { control: 'inpad:0', on: false, enabled: true });
+  assert.equal(mic1.jack, 'mic jack');
+  assert.equal(mic1.insert, null);
+  const mic2 = v.inputs[1];
+  assert.equal(mic2.jack, 'line / instrument jack');
+  assert.deepEqual(mic2.pad, { control: 'inpad:1', on: true, enabled: false }, 'a line jack greys the pad out, as CueMix does');
+  assert.deepEqual(mic2.insert, { control: 'ingain:11', field: 'ingainf:11', position: 0, value: 0, max: 20, text: '0 dB' }, 'a return has no meter');
+  const line4 = v.inputs[3];
+  assert.deepEqual(line4.gain, { control: 'ingain:3', field: 'ingainf:3', position: 16 / 20, value: 16, max: 20, text: '16 dB', meter: off });
+  assert.deepEqual(line4.phase, { control: 'inphase:3', on: true });
+  assert.equal(line4.pad, null);
+  assert.equal(line4.phantom, null);
+  client.gesture({ type: 'select_tab', control: 'tab:0' });
+  assert.equal(view().mode, 'mixer');
+});
+
+test('gain, polarity and pad controls send whole-dB and 0/1 property writes within range; 48V off needs no confirmation', () => {
+  const { client, sent, view } = recordingClient();
+  client.receive(inputsState());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  sent.length = 0;
+  client.gesture({ type: 'drag', control: 'ingain:0', value: 0.5 });
+  assert.equal(view().inputs[0].gain.text, '37 dB', 'the slider shows where it is held');
+  client.gesture({ type: 'release', control: 'ingain:0' });
+  client.gesture({ type: 'input_set', control: 'ingainf:2', value: '18.4' });
+  client.gesture({ type: 'input_set', control: 'ingainf:2', value: '99' });
+  client.gesture({ type: 'input_set', control: 'ingainf:2', value: 'x' });
+  client.gesture({ type: 'toggle', control: 'inphase:5', value: true });
+  client.gesture({ type: 'toggle', control: 'inpad:0', value: true });
+  client.gesture({ type: 'toggle', control: 'inphantom:0', value: false });
+  assert.deepEqual(sent.map((m) => m.action), [
+    { kind: 'set_property', prop: 5001, index: 0, value: 37 },
+    { kind: 'set_property', prop: 5001, index: 2, value: 18 },
+    { kind: 'set_property', prop: 5001, index: 2, value: 20 },
+    { kind: 'set_property', prop: 5002, index: 5, value: 1 },
+    { kind: 'set_property', prop: 5003, index: 0, value: 1 },
+    { kind: 'set_property', prop: 5004, index: 0, value: 0 },
+  ]);
+  assert.equal(view().confirm, null);
+});
+
+test('switching 48V on asks first: cancel sends nothing, confirming sends the write', () => {
+  const { client, sent, view } = recordingClient();
+  client.receive(inputsState());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  sent.length = 0;
+  client.gesture({ type: 'toggle', control: 'inphantom:1', value: true });
+  assert.deepEqual(sent, [], 'nothing goes to the unit until confirmed');
+  assert.equal(view().confirm.title, 'Switch 48V on for Mic 2?');
+  assert.equal(view().confirm.control, 'inphantom:1');
+  assert.match(view().confirm.text, /ribbon/);
+  client.gesture({ type: 'cancel_confirm' });
+  assert.equal(view().confirm, null);
+  assert.deepEqual(sent, []);
+  client.gesture({ type: 'toggle', control: 'inphantom:1', value: true });
+  client.gesture({ type: 'confirm', remember: false });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_property', prop: 5004, index: 1, value: 1 }]);
+  assert.equal(view().confirm, null);
+  client.gesture({ type: 'toggle', control: 'inphantom:1', value: true });
+  assert.ok(view().confirm, 'without "don\'t ask again" the next switch-on asks again');
+  client.gesture({ type: 'confirm', remember: false });
+});
+
+test('"don\'t ask again" is kept per browser and skips the 48V confirmation from then on', () => {
+  const sent = [];
+  const renders = [];
+  const storage = memoryStorage({ 'motu-mixer:collapsed': '' });
+  const client = createMixerClient({ send: (m) => sent.push(m), render: (v) => renders.push(v), storage });
+  client.receive(inputsState());
+  client.gesture({ type: 'toggle', control: 'inphantom:0', value: true });
+  client.gesture({ type: 'confirm', remember: true });
+  assert.equal(storage.data['motu-mixer:ask-48v'], 'off');
+  sent.length = 0;
+  client.gesture({ type: 'toggle', control: 'inphantom:1', value: true });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_property', prop: 5004, index: 1, value: 1 }]);
+  assert.equal(renders.at(-1).confirm, null);
+  // a fresh page in the same browser remembers it
+  const again = createMixerClient({ send: (m) => sent.push(m), render() {}, storage });
+  again.receive(inputsState());
+  sent.length = 0;
+  again.gesture({ type: 'toggle', control: 'inphantom:0', value: true });
+  assert.deepEqual(sent.map((m) => m.action), [{ kind: 'set_property', prop: 5004, index: 0, value: 1 }]);
+});
+
+test('a 48V confirmation given after the connection dropped sends nothing', () => {
+  const { client, sent, view } = recordingClient();
+  client.receive(inputsState());
+  client.gesture({ type: 'toggle', control: 'inphantom:0', value: true });
+  client.receive({ type: 'status', status: 'disconnected', read_only_reason: null });
+  sent.length = 0;
+  client.gesture({ type: 'confirm', remember: false });
+  assert.deepEqual(sent, []);
+  assert.equal(view().confirm, null);
+});
+
+test('input block changes reported by the unit update the Inputs page, and nothing is sent while not synced', () => {
+  const { client, sent, view } = recordingClient();
+  client.receive(inputsState());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  client.receive({ type: 'delta', changes: [{ prop: 'in_gain', index: 9, value: 10 }, { prop: 'in_phantom', index: 1, value: 1 }, { prop: 'in_return_detect', index: 0, value: 1 }] });
+  assert.equal(view().inputs[9].gain.value, 10);
+  assert.equal(view().inputs[1].phantom.on, true);
+  assert.equal(view().inputs[0].insert.control, 'ingain:10');
+  client.receive({ type: 'status', status: 'syncing', read_only_reason: null });
+  sent.length = 0;
+  client.gesture({ type: 'toggle', control: 'inphase:2', value: true });
+  client.gesture({ type: 'input_set', control: 'ingainf:2', value: '5' });
+  assert.deepEqual(sent, []);
+});
+
+test('on the Inputs page the live meters go to the input faders', () => {
+  const meterMaps = [];
+  const client = createMixerClient({ send() {}, render() {}, renderMeters: (m) => meterMaps.push(m), storage: { getItem: () => '', setItem() {} } });
+  client.receive(inputsState());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  const inputs = Array(44).fill(null);
+  inputs[0] = -3;       // Mic 1 hot
+  inputs[9] = -30;      // Line 10 quiet
+  client.receive({ type: 'meters', inputs, buses: Array(16).fill(null) });
+  const map = meterMaps.at(-1);
+  assert.deepEqual(Object.keys(map), Array.from({ length: 10 }, (_, i) => `ingain:${i}`));
+  assert.equal(map['ingain:0'].zone, 'hot');
+  assert.equal(map['ingain:9'].zone, 'ok');
+  assert.equal(map['ingain:1'].zone, 'off');
+});
+
+test('a state without the input block shows an empty Inputs page', () => {
+  const { client, view } = recordingClient();
+  client.receive(stateMessage());
+  client.gesture({ type: 'select_tab', control: 'tab:inputs' });
+  assert.deepEqual(view().inputs, []);
 });

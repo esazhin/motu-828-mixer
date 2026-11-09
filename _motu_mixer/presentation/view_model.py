@@ -7,6 +7,7 @@ from _motu_mixer.domain.actions import (
     SetBusLink, SetInputLink, SetLevel, SetMasterLevel, SetMasterMute, SetMute, SetPan, SetProperty, SetRoute,
     SetRouteSlot, SetSolo,
 )
+from _motu_mixer.domain import preamp
 from _motu_mixer.domain.eq import INPUT_EQ, OUTPUT_EQ
 from _motu_mixer.domain.properties import PropertyId as P
 from _motu_mixer.domain.protocol_bounds import OPEN_ITEMS
@@ -188,6 +189,23 @@ def _eq(state):
             for name, layout in (("input", INPUT_EQ), ("output", OUTPUT_EQ))}
 
 
+# the analog input block, one byte per channel (domain/preamp.py); None where a value has not been reported
+_INPUT_COLUMNS = {
+    "gain": preamp.GAIN, "phase": preamp.PHASE, "pad": preamp.PAD, "phantom": preamp.PHANTOM,
+    "jack": preamp.JACK_DETECT, "return_detect": preamp.RETURN_DETECT,
+}
+
+
+def _inputs(state):
+    def column(prop):
+        values = []
+        for index in range(properties.spec(prop).length):
+            raw = state.raw(Address(prop, index))
+            values.append(None if raw is None else decode_value(prop, raw))
+        return values
+    return {name: column(prop) for name, prop in _INPUT_COLUMNS.items()}
+
+
 def _device(state):
     identity = state.identity()
     return {field: getattr(identity, field, None) for field in _DEVICE_FIELDS}
@@ -214,6 +232,7 @@ def snapshot_json(snapshot, topology=_topology):
         "bus_master": _columns(state, _MASTER_COLUMNS, _BUSES),
         "routing": _routing(state),
         "eq": _eq(state),
+        "inputs": _inputs(state),
         "loops": _loops(snapshot.loops),
         "policy": {item.name: item.behaviour for item in OPEN_ITEMS},
         "layout": _layout(state, topology),
@@ -251,6 +270,7 @@ _DISPLAYED = {
     P.PATCH: _route_change,
     **{layout.prop(field): _plain_change(f"{prefix}_eq_{field}")
        for prefix, layout in (("in", INPUT_EQ), ("out", OUTPUT_EQ)) for field in _EQ_FIELDS},
+    **{prop: _plain_change(f"in_{name}") for name, prop in _INPUT_COLUMNS.items()},
 }
 
 

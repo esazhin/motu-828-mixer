@@ -379,7 +379,7 @@ def main_reaches_api(edge):
 
 
 def actions_reach_properties(edge):
-    assert change(edge, kind="set_property", prop=5004, index=0, value=1).json()["kind"] == "not_writable_property"
+    assert change(edge, kind="set_property", prop=5005, index=0, value=1).json()["kind"] == "not_writable_property"
 
 
 @pytest.mark.parametrize("reaches, device, environ", [

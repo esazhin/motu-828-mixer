@@ -28,6 +28,13 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     document.body.appendChild(node);
     return node;
   })();
+  const confirmHost = document.getElementById('confirm') ?? (() => {
+    const node = document.createElement('div');
+    node.setAttribute('id', 'confirm');
+    document.body.appendChild(node);
+    return node;
+  })();
+  let confirmRemember = null;   // the "don't ask again" box of the open confirmation
   let eqGraph = null;   // reused across redraws so a dragged point keeps its pointer capture
   let socket = null;
   let retryMs = 1000;
@@ -62,7 +69,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     const node = drag && drag.control === spec.control ? drag.element : svg('svg', {});
     node.replaceChildren();
     node.setAttribute('viewBox', `0 0 ${box.width} ${box.height}`);
-    node.setAttribute('class', axis === 'y' ? 'fader' : spec.disabled ? 'pan disabled' : 'pan');
+    node.setAttribute('class', axis === 'y' ? spec.disabled ? 'fader disabled' : 'fader' : spec.disabled ? 'pan disabled' : 'pan');
     node.setAttribute('data-control', spec.control);
     if (!spec.disabled) node.setAttribute('data-gesture', `drag-${axis}`);
     node.style.setProperty('touch-action', 'none');
@@ -186,6 +193,71 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     });
   }
 
+  // An input strip, laid out like a mixer strip: name and jack, a vertical gain fader with the input's live meter in
+  // its track, the dB value as an editable box, then polarity, pad and the 48V indicator where mute/solo/link sit.
+  function inputStrip(row, gain, enabled, label, sub) {
+    const node = element('div', row.mic ? 'strip input mic' : 'strip input');
+    node.append(element('div', 'label', label));
+    node.append(element('div', 'jack', sub ?? ''));
+    node.append(slider({ ...gain, disabled: !enabled }, 'y'));
+    const field = document.createElement('input');
+    field.setAttribute('type', 'number');
+    field.setAttribute('class', 'readout gain-field');
+    field.setAttribute('min', '0');
+    field.setAttribute('max', String(gain.max));
+    field.setAttribute('step', '1');
+    field.setAttribute('data-control', gain.field);
+    field.setAttribute('data-gesture', 'input-field');
+    field.setAttribute('title', `0-${gain.max} dB`);
+    field.value = gain.value === null || gain.value === undefined ? '' : String(gain.value);
+    if (!enabled) field.setAttribute('disabled', '');
+    node.append(field);
+    const buttons = element('div', 'buttons');
+    const phase = button(row.phase, 'toggle', 'Phase', enabled, 'phase');
+    phase.setAttribute('title', row.phase.on ? 'Polarity inverted (Ø)' : 'Invert polarity (Ø)');
+    buttons.append(phase);
+    buttons.append(row.pad ? button(row.pad, 'toggle', 'Pad', enabled && row.pad.enabled, 'pad') : element('div', 'button-spacer'));
+    if (row.phantom) {
+      const phantom = button(row.phantom, 'toggle', '48V', enabled && row.phantom.enabled, 'phantom');
+      phantom.setAttribute('title', row.phantom.on ? 'Phantom power is on' : 'Switch phantom power on (asks first)');
+      buttons.append(phantom);
+    } else {
+      buttons.append(element('div', 'button-spacer'));
+    }
+    node.append(buttons);
+    return node;
+  }
+
+  // The confirmation for switching 48V on: what it does, the warning, a "don't ask again" box, cancel or go ahead.
+  function confirmPanel(confirm) {
+    const panel = element('div', 'confirm-panel');
+    panel.setAttribute('data-control', confirm.control);
+    panel.append(element('h2', 'confirm-title', confirm.title), element('p', 'confirm-text', confirm.text));
+    const remember = element('label', 'confirm-remember');
+    confirmRemember = document.createElement('input');
+    confirmRemember.setAttribute('type', 'checkbox');
+    confirmRemember.setAttribute('data-control', 'confirm-remember');
+    remember.append(confirmRemember, element('span', 'confirm-remember-text', "Don't ask me again"));
+    const actions = element('div', 'confirm-actions');
+    const cancel = element('button', 'confirm-cancel', 'Cancel');
+    cancel.setAttribute('data-control', 'confirm-cancel');
+    cancel.setAttribute('data-gesture', 'cancel_confirm');
+    const ok = element('button', 'confirm-ok', 'Switch 48V on');
+    ok.setAttribute('data-control', 'confirm-ok');
+    ok.setAttribute('data-gesture', 'confirm');
+    actions.append(cancel, ok);
+    panel.append(remember, actions);
+    return panel;
+  }
+
+  function inputStrips(rows, enabled) {
+    return rows.flatMap((row) => {
+      const strips = [inputStrip(row, row.gain, enabled, row.label, row.jack)];
+      if (row.insert) strips.push(inputStrip({ ...row, pad: null, phantom: null }, row.insert, enabled, `${row.label} insert`, 'return'));
+      return strips;
+    });
+  }
+
   const fx = (f) => GRAPH.width * Math.log(f / 20) / Math.log(1000);
   const gy = (g) => GRAPH.height / 2 - g * (GRAPH.height / 2) / GRAPH.range;
 
@@ -298,9 +370,12 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
       tab.setAttribute('title', head.collapsed ? `Show ${head.count} ${head.label} channels` : `Hide ${head.label} channels`);
       columns.splice(head.before, 0, tab);
     }
-    strips.replaceChildren(...columns);
+    strips.replaceChildren(...(view.mode === 'inputs' ? inputStrips(view.inputs ?? [], view.controlsEnabled) : columns));
     if (view.master) strips.append(strip(view.master, 'strip master', view.controlsEnabled, view.panRow));
     routing.replaceChildren(...routeSections(view.routing, view.controlsEnabled));
+    document.body.setAttribute('data-confirm', view.confirm ? 'open' : 'closed');
+    if (!view.confirm) confirmRemember = null;
+    confirmHost.replaceChildren(...(view.confirm ? [confirmPanel(view.confirm)] : []));
     document.body.setAttribute('data-eq', view.eq ? 'open' : 'closed');
     eqHost.replaceChildren(...(view.eq ? [eqPanel(view.eq, view.controlsEnabled)] : []));
     if (drag && !drag.element.hasPointerCapture(drag.pointerId)) drag.element.setPointerCapture(drag.pointerId);
@@ -382,6 +457,8 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (gesture === 'open_eq') client.gesture({ type: 'open_eq', control });
     if (gesture === 'toggle_group') client.gesture({ type: 'toggle_group', control });
     if (gesture === 'close_eq') client.gesture({ type: 'close_eq' });
+    if (gesture === 'confirm') client.gesture({ type: 'confirm', remember: Boolean(confirmRemember && confirmRemember.checked) });
+    if (gesture === 'cancel_confirm') client.gesture({ type: 'cancel_confirm' });
     if (gesture === 'eq_toggle') client.gesture({ type: 'eq_set', control, value: node.getAttribute('data-on') === '1' });
   });
 
@@ -392,6 +469,9 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     }
     if (node && node.getAttribute('data-gesture') === 'eq-field') {
       client.gesture({ type: 'eq_set', control: node.getAttribute('data-control'), value: node.value });
+    }
+    if (node && node.getAttribute('data-gesture') === 'input-field') {
+      client.gesture({ type: 'input_set', control: node.getAttribute('data-control'), value: node.value });
     }
   });
 
@@ -406,6 +486,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
   }
 
   if (location.hash === '#routing') client.gesture({ type: 'select_tab', control: 'tab:routing' });
+  if (location.hash === '#inputs') client.gesture({ type: 'select_tab', control: 'tab:inputs' });
   if (/^#eq:(in|out):\d+$/.test(location.hash ?? '')) client.gesture({ type: 'open_eq', control: location.hash.slice(1) });
   connect();
 }

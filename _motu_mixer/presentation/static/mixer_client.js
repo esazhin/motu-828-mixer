@@ -89,6 +89,29 @@ function eqValue(field, value) {
   return Number(value);
 }
 
+// Analog input block (domain/preamp.py): one byte per channel. Gain is whole dB: Mic 1-2 0-74, Line 3-10 and the
+// insert returns 0-20. Polarity and pad are 0/1. 48V is shown, never written; the returns appear when an insert is detected.
+const INPUT_PROPS = { gain: 5001, phase: 5002, pad: 5003, phantom: 5004 };
+const INPUT_NAMES = INPUT_EQ_NAMES;
+const MIC_GAIN_MAX = 74;
+const LINE_GAIN_MAX = 20;
+const RETURNS_START = 10;
+const INPUT_FIELDS = ['gain', 'phase', 'pad', 'phantom', 'jack', 'return_detect'];
+// Switching 48V on asks first (ribbon mics and some line-level gear do not tolerate it); "don't ask again" is kept per browser.
+const ASK_48V_KEY = 'motu-mixer:ask-48v';
+const PHANTOM_WARNING = 'Phantom power can damage ribbon microphones and some line-level equipment. Check what is plugged into this input first.';
+
+function loadAsk48v(storage) {
+  try { return !storage || storage.getItem(ASK_48V_KEY) !== 'off'; } catch { return true; }
+}
+
+const gainMax = (index) => (index < 2 ? MIC_GAIN_MAX : LINE_GAIN_MAX);
+
+function gainValue(index, value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(clamp(number, 0, gainMax(index))) : null;
+}
+
 // Strip groups that fold away to save width; collapsed by default, remembered per browser.
 const STRIP_GROUPS = [
   { key: 'adat', label: 'ADAT', from: 12, to: 27 },
@@ -116,10 +139,13 @@ const DELTA_TARGETS = {
   routing: (s) => s.routing,
   ...Object.fromEntries(Object.entries(EQ).flatMap(([prefix, layout]) =>
     EQ_FIELDS.map((field) => [`${prefix}_eq_${field}`, (s) => s.eq?.[layout.key][field]]))),
+  ...Object.fromEntries(INPUT_FIELDS.map((field) => [`in_${field}`, (s) => s.inputs?.[field]])),
 };
 
 export function createMixerClient({ send, render, renderMeters = null, storage = null }) {
   const collapsed = loadCollapsed(storage);
+  let ask48v = loadAsk48v(storage);
+  let pending = null;          // a 48V switch-on waiting for the user's confirmation: { action, control }
   let server = null;
   let meters = null;
   let status = null;
@@ -128,6 +154,7 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
   let refusal = null;
   let selectedBus = null;
   let routingSelected = false;
+  let inputsSelected = false;
   let eqTarget = null;          // { kind: 'in' | 'out', slot }
   const held = new Map();
 
@@ -262,6 +289,41 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     return SECTIONS.flatMap((section) => rows.filter((r) => r.section === section));
   }
 
+  // The Inputs page: one card per analog input with its gain, polarity and, on the mic inputs, pad and 48V.
+  // Mic/Line inputs 0-9 meter at their mixer input (post-FX tap); the insert returns have no meter.
+  function gainView(index) {
+    const control = `ingain:${index}`;
+    const max = gainMax(index);
+    const base = { control, field: `ingainf:${index}`, max };
+    if (index < RETURNS_START) base.meter = meterView(meters?.inputs[index]);
+    if (held.has(control)) {
+      const value = Math.round(held.get(control) * max);
+      return { ...base, position: value / max, value, text: `${value} dB` };
+    }
+    const value = server.inputs.gain[index];
+    if (value === null || value === undefined) return { ...base, position: 0, value: null, text: '—' };
+    return { ...base, position: value / max, value, text: `${value} dB` };
+  }
+
+  function inputsView() {
+    if (!server.inputs) return [];
+    const { phase, pad, phantom, jack, return_detect: returns } = server.inputs;
+    return INPUT_NAMES.map((label, index) => {
+      const mic = index < 2;
+      return {
+        label,
+        index,
+        mic,
+        gain: gainView(index),
+        phase: { control: `inphase:${index}`, on: phase[index] === 1 },
+        pad: mic ? { control: `inpad:${index}`, on: pad[index] === 1, enabled: jack[index] !== 1 } : null,
+        phantom: mic ? { control: `inphantom:${index}`, on: phantom[index] === 1, enabled: jack[index] !== 1 } : null,
+        jack: !mic || jack[index] === null || jack[index] === undefined ? null : jack[index] === 1 ? 'line / instrument jack' : 'mic jack',
+        insert: mic && returns[index] === 1 ? gainView(RETURNS_START + index) : null,
+      };
+    });
+  }
+
   function banner() {
     const lines = [];
     if (status === 'read_only') lines.push(`Read-only: ${readOnlyReason}`);
@@ -277,18 +339,24 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       statusText: status === 'read_only' ? `Read-only: ${readOnlyReason}` : STATUS_TEXT[status] ?? 'connecting',
       banner: banner(),
       controlsEnabled: enabled(),
+      confirm: pending ? { control: pending.control, title: pending.title, text: PHANTOM_WARNING } : null,
     };
     if (!server || server.layout.tabs.length === 0) {
-      return { ...base, mode: 'mixer', panRow: false, tabs: [], strips: [], master: null, routing: [], eq: null };
+      return { ...base, mode: 'mixer', panRow: false, tabs: [], strips: [], master: null, routing: [], inputs: [], eq: null };
     }
     const tab = selectedTab();
     const bus = tab.bus;
+    const onBus = !routingSelected && !inputsSelected;
     const tabs = [
-      ...server.layout.tabs.map((t) => ({ control: `tab:${t.bus}`, label: t.label, selected: !routingSelected && t.bus === bus })),
+      ...server.layout.tabs.map((t) => ({ control: `tab:${t.bus}`, label: t.label, selected: onBus && t.bus === bus })),
+      { control: 'tab:inputs', label: 'Inputs', selected: inputsSelected },
       { control: 'tab:routing', label: 'Routing', selected: routingSelected },
     ];
     if (routingSelected) {
-      return { ...base, mode: 'routing', panRow: false, tabs, strips: [], master: null, routing: routingView(), eq: null };
+      return { ...base, mode: 'routing', panRow: false, tabs, strips: [], master: null, routing: routingView(), inputs: [], eq: null };
+    }
+    if (inputsSelected) {
+      return { ...base, mode: 'inputs', panRow: false, tabs, strips: [], master: null, routing: [], inputs: inputsView(), eq: null };
     }
     const allStrips = server.layout.strips;
     const visible = allStrips.filter((strip) => !collapsed.has(groupOf(strip.input)?.key));
@@ -333,12 +401,17 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       },
       eq: eqView(),
       routing: [],
+      inputs: [],
     };
   }
 
   function meterMap() {
     const map = {};
     if (!server || server.layout.tabs.length === 0 || routingSelected) return map;
+    if (inputsSelected) {
+      if (server.inputs) for (let index = 0; index < RETURNS_START; index++) map[`ingain:${index}`] = meterView(meters?.inputs[index]);
+      return map;
+    }
     const bus = selectedTab().bus;
     for (const strip of server.layout.strips) map[`fader:${bus}:${strip.input}`] = meterView(meters?.inputs[strip.input]);
     map[`master:${bus}`] = meterView(meters?.buses[bus]);
@@ -356,7 +429,13 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     if (kind === 'fader') return { kind: 'set_level', bus: numbers[0], input: numbers[1], db: dbOrInf(position) };
     if (kind === 'pan') return { kind: 'set_pan', bus: numbers[0], input: numbers[1], pan: position };
     if (kind === 'master') return { kind: 'set_master_level', bus: numbers[0], db: dbOrInf(position) };
+    if (kind === 'ingain') return inputAction('gain', numbers[0], Math.round(position * gainMax(numbers[0])));
     return null;
+  }
+
+  function inputAction(field, index, value) {
+    if (value === null) return null;
+    return { kind: 'set_property', prop: INPUT_PROPS[field], index, value };
   }
 
   function dbOrInf(position) {
@@ -370,6 +449,9 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     if (kind === 'master_mute') return { kind: 'set_master_mute', bus: numbers[0], on };
     if (kind === 'input_link') return { kind: 'set_input_link', input: numbers[0], on };
     if (kind === 'bus_link') return { kind: 'set_bus_link', bus: numbers[0], on };
+    if (kind === 'inphase') return inputAction('phase', numbers[0], on ? 1 : 0);
+    if (kind === 'inpad') return inputAction('pad', numbers[0], on ? 1 : 0);
+    if (kind === 'inphantom') return inputAction('phantom', numbers[0], on ? 1 : 0);
     return null;
   }
 
@@ -377,9 +459,10 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     const [kind, ...rest] = String(g.control).split(':');
     const numbers = rest.map(Number);
     if (g.type === 'select_tab') {
-      if (g.control === 'tab:routing') routingSelected = true;
+      if (g.control === 'tab:routing') [routingSelected, inputsSelected] = [true, false];
+      else if (g.control === 'tab:inputs') [routingSelected, inputsSelected] = [false, true];
       else if (kind === 'tab') {
-        routingSelected = false;
+        routingSelected = inputsSelected = false;
         selectedBus = numbers[0];
       }
       return null;
@@ -403,6 +486,20 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       eqTarget = null;
       return null;
     }
+    if (g.type === 'cancel_confirm') {
+      pending = null;
+      return null;
+    }
+    if (g.type === 'confirm') {
+      if (!pending) return null;
+      if (g.remember) {
+        ask48v = false;
+        try { storage?.setItem(ASK_48V_KEY, 'off'); } catch { /* private mode: keep it for this page */ }
+      }
+      const action = enabled() ? pending.action : null;
+      pending = null;
+      return action;
+    }
     if (!enabled()) return null;
     if (kind === 'pan' && !panEnabled(numbers[0], numbers[1])) return null;
     if (g.type === 'eq_set' && kind === 'eqb' && server?.eq) {
@@ -424,7 +521,14 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       if (action) held.set(g.control, g.value);
       return action;
     }
+    if (g.type === 'toggle' && kind === 'inphantom' && g.value && ask48v) {
+      pending = { action: toggleAction(kind, numbers, true), control: g.control, title: `Switch 48V on for ${INPUT_NAMES[numbers[0]]}?` };
+      return null;
+    }
     if (g.type === 'toggle') return toggleAction(kind, numbers, Boolean(g.value));
+    if (g.type === 'input_set' && kind === 'ingainf' && server?.inputs) {
+      return inputAction('gain', numbers[0], gainValue(numbers[0], g.value));
+    }
     if (g.type === 'route' && kind === 'route') {
       const sources = String(g.value).split('-').map(Number);
       return { kind: 'set_route', output_slots: numbers, sources };

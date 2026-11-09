@@ -7,8 +7,9 @@
 > the write tests in §9 before anything depends on it.
 >
 > **Scope:** CueMix's main mixer (per-bus faders, pan, mute, solo, stereo links, bus masters), the output routing
-> table, **live meters** (§4.7) and **input/output EQ** (§4.6). **Not covered (never written):** preamp gain,
-> pad, **48V phantom power**, gate/compressor, reverb parameters, talkback, footswitch, clock, device name.
+> table, **live meters** (§4.7), **input/output EQ** (§4.6) and the **analog input block** (§4.8: preamp gain,
+> pad, polarity, 48V). **Not covered (never written):** output trim, gate/compressor, reverb parameters, talkback,
+> footswitch, clock, device name.
 
 ---
 
@@ -170,6 +171,32 @@ W4 is no longer needed for v1.
 - [LIVE] On a real capture the post-FX taps track their own raw inputs (0.6 % disagreement, from input
   dynamics) against 69 % for a table shifted by one channel.
 
+### 4.8 Analog input block: preamp gain, polarity, pad, 48V [CODE] [LIVE]
+
+CueMix's *Inputs* page (`iosetup.js` MicPre / LineIn). Every property here is **one byte per channel**, sent and
+received on the same SysEx datastore as the mixer: there is no separate MIDI CC or other path for gain.
+
+| Property | id | Index | Semantics |
+|---|---|---|---|
+| kiGain | **5001** | 0–1 Mic 1-2 · 2–9 Line 3-10 · 10–11 insert returns | **whole dB.** Mic **0–74** (`kPreTrimCtrlInfo`; dev_828.js: "currently only up to 65"; with an insert detected CueMix caps the preamp at 54), Line and returns **0–20** (`kLineInTrimCtrlInfo`) |
+| kiPhase | **5002** | 0–1 Mic, 2–9 Line | polarity: 0 normal, 1 inverted |
+| kPad | **5003** | 0–1 Mic | 0/1; CueMix greys it out when the jack is line/instrument |
+| k48V | **5004** | 0–1 Mic | phantom power 0/1; greyed out on a line/instrument jack. Written only after the page's confirmation |
+| kJackDetect | 5005 | 0–1 Mic | read-only: 0 = mic (XLR), 1 = line/instrument (TRS) |
+| kReturnDetect | 5021 | 0–1 Mic | read-only: 1 = an insert return is plugged in, so CueMix shows the "Insert gain" knob (kiGain 10/11) |
+| koTrim | 5000 | 16, `LocalOutputs` order | output trim 0–100 = 0 to −100 dB. Not written |
+| kMainTrim | 5011 | 0 | Main out trim, same scale. Not written |
+
+- **[CODE]** The knob writes with the generic `datastore.setV`, so a write is the normal host→device message
+  (§2.1): `[5001][index][len=1][value]`. `kiGain` `v` defaults: `[0,0, 0×8, 0,0]`.
+- **[LIVE] 2026-10-12 capture:** the unit reports the whole block unasked in its full state: 5001 ×12
+  = `47 42 17 16 12 12 12 12 9 9 0 0` dB (real settings, not defaults), 5002 ×10, 5003/5004/5005/5021 ×2 all 0,
+  5000 ×16, 5011 = 12. Front-panel gain changes therefore arrive as ordinary 5001 reports.
+- **Write [LIVE] (W6, §9, 2026-11-08):** gain as a whole dB within the channel's range, pad and polarity 0/1, one
+  message each; out of range values are refused, never clamped. Line 10 trim written 9 → 10 → 9 dB and read back from
+  the unit after a fresh sync each time. 48V (5004) is written the same way, but only after the page's confirmation
+  (ribbon mics and some line-level gear do not tolerate phantom power).
+
 ## 5 · Routing table (outputs) [CODE] [LIVE]
 
 `kFPGAPatch` **5010**, type B, **one message per output slot**: `patch[output_slot] = source`. `127` = no
@@ -190,8 +217,24 @@ Outputs:   local line outs = 32 + LocalOutputs.lines[i]  lines = [5,7,21,24,22,1
 ```
 
 **Mixer-input slots [LIVE]:** patch slots **76–119 feed mixer inputs 0–43** (slot `76 + i` = the source of
-mixer input i; live: slots 86/87 ← 58/59 S/PDIF in, slots 118/119 ← 90/91 reverb). They are not outputs:
-v1 never writes them, and the S/PDIF guard follows them when it traces a path into the mixer.
+mixer input i; live: slots 76–85 ← 47 34 50 37 46 33 45 32 49 36 (Mic 1-2, Line 3-10), 86/87 ← 58/59 S/PDIF in,
+88–103 ← ADAT A/B, 104–117 ← Computer 1–14 (host 0–13), 118/119 ← 90/91 reverb). They are not outputs: v1 never
+writes them, and the S/PDIF guard follows them when it traces a path into the mixer.
+
+**[LIVE] W7 (2026-11-08): these slots are writable, and a bus mix can feed a mixer input.** Slot 102 (mixer input
+26, ADAT B 7) was written 127 → read back 127, then **76 (Main mix L)** → read back 76, each from a fresh full
+sync. With input 26 raised to −20 dB on Ana 5 (bus 6, feeding no jack), bus 6's meter read **−37.5 dBFS against
+Main's −17.5**: the Main mix arrives at the mixer input at unity. Restored to 74. CueMix itself never writes this
+range (its `InPrePostFXMenu` writes the computer-in slots 0–31). Two consequences: a bus mix can be chained
+through a second bus for a second 3-band EQ stage, and a patched input has **no meter of its own** (the per-input
+meter taps follow the physical source code, §4.7). Any chain must keep the borrowed input at −∞ on the bus it
+is fed from, or the mix feeds back into itself.
+
+**[LIVE] Mixer latency (2026-11-08):** measured at 48 kHz by recording two computer-in channels at once (host out 1
+looped straight back through the patch table as the reference, the path under test on the other channel) and
+cross-correlating 3 s of music: **host out → Main mix = 1 sample (21 µs)**; **host out → Main mix → patched input
+26 → Ana 5 mix = 2 samples (42 µs)**; correlation peaks 0.97. The mixer processes per sample, not per block, so a
+chained second EQ stage costs one sample.
 
 **Hard guard:** refuse (do not send) any assignment that makes S/PDIF in (58/59) reach S/PDIF out (58/59),
 directly or through a bus whose live faders include S/PDIF in. The Axe-Fx III is on both ends, so this
@@ -299,6 +342,8 @@ Each test reads the value, writes a new one, reads it back from the stream, then
 | W3 | koBusFader on an unused bus | per-bus addressing |
 | ~~W4~~ | dropped: §4.5 is settled from CueMix code (one cell per action, first channel/bus), so no live test is needed | stereo semantics (§4.5) [CODE] |
 | W5 ✅ | kFPGAPatch: an **unused** output slot (Line out 10, slot 40) → 127 → restore | **PASS 2026-10-12**: routing write path |
+| W7 ✅ | kFPGAPatch mixer-input slot 102 (ADAT B 7 → input 26): 74 → 127 → 76 (Main mix L) → restored 74; flow proved on the jackless Ana 5 bus meter | **PASS 2026-11-08**: mixer-input slots are writable; a bus mix can feed a mixer input (§5) |
+| W6 ✅ | kiGain 5001 index 9 (Line 10 trim) 9 → 10 dB → read back → restored to 9 | **PASS 2026-11-08**: one-byte input-block write path (§4.8). Frame `f0 00 00 3b 00 01 00 02 13 09 00 09 00 01 0a f7`; the new value was read back from a fresh full sync, not from the echo. kPad 5003 confirmed from the Inputs page on the unit the same day |
 
-Safety: start with W1 on a muted, unused cell. Never touch 48V (5004), gain or pad. Keep `amidi` or the
+Safety: start with W1 on a muted, unused cell. Switch 48V (5004) only on a mic input with nothing connected; change gain or pad only on an input with nothing connected or by ±1 dB, and restore. Keep `amidi` or the
 client bounded with `timeout`. Record every result back into this spec and flip [TBD] → [LIVE].
