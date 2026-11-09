@@ -332,21 +332,21 @@ def test_the_state_carries_the_recognised_chain_and_the_pairs_a_chain_may_use():
     assert [o["bus"] for o in chain["stage_options"]] == [2, 4, 6, 8]
     assert chain["stage_options"][2] == {"bus": 6, "label": "Ana 5-6", "feeds": []}
     assert chain["stage_options"][0]["feeds"] == [] and chain["stage_options"][0]["label"] == "Ana 1-2"
-    assert [o["input"] for o in chain["carrier_options"]] == list(range(10, 44, 2))
-    assert chain["carrier_options"][-1] == {"input": 42, "label": "Reverb return L-R", "live": False}
+    assert [o["input"] for o in chain["carrier_options"]] == list(range(10, 42, 2)), "never the reverb return: the reverb is on its path"
+    assert chain["carrier_options"][8] == {"input": 26, "label": "ADAT B 7-8", "live": False}
     state = unit(patch={53: 78, 56: 79}, faders=[(0, 40)])      # Line out 3-4 fed by Ana 1-2; Computer 13 live on Main
     chain = snapshot_json(Snapshot(state=state, status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
     assert chain["stage_options"][0]["feeds"] == ["Line out 3-4"]
     assert next(o for o in chain["carrier_options"] if o["input"] == 40)["live"] is True
     on = snapshot_json(Snapshot(state=one_stage_on(), status=ConnectionStatus.SYNCED, read_only_detail=None, loops=frozenset()))["chain"]
     assert on["on"] is True
-    assert on["stages"] == [{"bus": 6, "carrier": 42, "label": "Ana 5-6", "carrier_label": "Reverb return L-R"}]
+    assert on["stages"] == [{"bus": 6, "carrier": 26, "label": "Ana 5-6", "carrier_label": "ADAT B 7-8"}]
 
 
 def test_set_chain_parses_its_stages_and_refuses_malformed_ones():
     from _motu_mixer.domain.actions import SetChain
     from _motu_mixer.domain.chain import Stage
-    assert parse_action({"kind": "set_chain", "on": True, "stages": [{"bus": 6, "carrier": 42}]}) == SetChain(True, (Stage(6, 42),))
+    assert parse_action({"kind": "set_chain", "on": True, "stages": [{"bus": 6, "carrier": 26}]}) == SetChain(True, (Stage(6, 26),))
     assert parse_action({"kind": "set_chain", "on": False}) == SetChain(False, ())
     for bad in ({"kind": "set_chain", "on": 1}, {"kind": "set_chain", "on": True, "stages": "x"},
                 {"kind": "set_chain", "on": True, "stages": [{"bus": 6}]}):

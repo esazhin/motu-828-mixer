@@ -141,6 +141,15 @@
   .chain-remove { font-size: 11px; padding: 3px 10px; }
   .chain-jacks { border-left-color: var(--magenta); }
   .chain-add { display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; margin-bottom: 12px; }
+  .chain-presets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .chain-presets select { flex: 1 1 140px; width: auto; }
+  .chain-presets input {
+    flex: 1 1 140px; font: inherit; color: var(--text); background: var(--track); border: 1px solid var(--cyan-dim);
+    border-radius: 8px; padding: 6px 8px; min-width: 0;
+  }
+  .chain-presets input:focus { outline: none; border-color: var(--cyan); box-shadow: var(--glow); }
+  .chain-preset-current { flex: 1 0 100%; font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #39ff88; }
+  .chain-preset-current.none { color: var(--muted); }
   .chain-section { margin-top: 10px; padding: 8px 10px 10px; border-radius: 12px; border: 1px dashed var(--stage); }
   .chain-section-title { font-size: 11px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--stage); margin-bottom: 6px; }
   .chain-section .eq-bands { margin-top: 0; }

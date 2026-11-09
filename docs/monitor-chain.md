@@ -4,7 +4,7 @@
 > |---|---|
 > | id | `monitor-chain` |
 > | created | `2026-11-08` |
-> | status | draft · locked (2026-11-08) · **delivered** (2026-11-08, W8 pending) · verified |
+> | status | draft · locked (2026-11-08) · **delivered** (2026-11-08; W8 on/off heard live, meter check pending) · verified |
 > | builds on | [PROTOCOL-SPEC.md](../PROTOCOL-SPEC.md) §4.6 (EQ), §5 (routing, W7, mixer latency) |
 
 ## 1 · Intent
@@ -29,10 +29,11 @@ Role: binding.
 - **Stage**: a stereo bus pair that carries the chain. Stage 0 is Main 1-2 itself. Stage n ≥ 1 is one of the
   Ana pairs (1-2, 3-4, 5-6, 7-8), its 3-band output EQ being the stage's EQ.
 - **Carrier**: the stereo mixer-input pair that brings stage n−1's mix into stage n. Any pair of mixer
-  inputs 10–43 may be borrowed (S/PDIF, ADAT A/B, Computer 1–14, reverb return); Mic/Line 1–10 never, since
-  they are physical inputs with their own input EQ and dynamics. **Default first carrier: the reverb return
-  (inputs 42-43, slots 118/119)**: the built-in reverb is unused on this setup, so repurposing its return costs
-  nothing physical and leaves ADAT and the Computer channels alone.
+  inputs 10–41 may be borrowed (S/PDIF, ADAT A/B, Computer 1–14); Mic/Line 1–10 never, since they are physical
+  inputs with their own input EQ and dynamics; the **reverb return (42-43) never**: switching a chain on through
+  it (2026-11-08, live) put the built-in reverb on the monitor path, so its slots 118/119 feed the reverb
+  processor and the mixer hears the processor's output. **Default first carrier: ADAT B 7-8 (inputs 26-27,
+  slots 102/103)**: idle on this unit, proven writable by W7, and the pair a future ADAT expander needs last.
 - **Chain**: Main → carrier₁ → stage₁ → carrier₂ → stage₂ … → Main jacks. Up to **four** stages on this
   unit (the four Ana pairs): 15 bands, 5 samples. **Default first stage: Ana 5-6** (buses 6-7), which feeds no
   jack on this unit.
@@ -86,12 +87,18 @@ built by this service, by CueMix or by hand is shown the same way, and a restart
 - **Meters**: a carrier has no meter of its own (§5, W7); stage meters are the bus meters.
 - A configuration (stages and carriers) is kept per browser so "on" after "off" rebuilds the same chain; the
   unit's state remains the truth for what is on now.
+- **Presets**: a named preset holds the stages and the output EQ of Main and of every stage ([mode, bypass,
+  freq, gain, q] per band), kept per browser. Save stores the chain as shown; Load writes back every band that
+  differs, then switches the chain on with the preset's stages (nothing is sent for what already matches);
+  Delete forgets it. The name last saved or loaded is shown in the window and on the Main master's `Chain`
+  button while the unit's chain and EQ still match it, marked edited (`*`) once a band or stage differs.
+- Double-click on any EQ point, in the single-bus panel or the combined view, zeroes that band's gain.
 
 ### 2.6 Acceptance
 
 | id | scenario | passes when |
 |---|---|---|
-| C1 | On with one stage (Ana 5-6, carrier reverb return) while music plays on Main | Main jacks read 82/83, slots 118/119 read 76/77, stage meter equals Main's meter ±0.5 dB, no loop reported |
+| C1 | On with one stage (Ana 5-6, carrier ADAT B 7-8) while music plays on Main | Main jacks read 82/83, slots 102/103 read 76/77, stage meter equals Main's meter ±0.5 dB, no loop reported |
 | C2 | Off | every touched slot and cell equals its native value; Main jacks 76/77 |
 | C3 | Two stages | Main jacks read the second stage; the first stage's carrier reads 76/77, the second's reads the first stage's outputs |
 | C4 | Self-feed attempt (raise a carrier on its own source bus) | refused with the path named; nothing sent |
@@ -116,5 +123,7 @@ Role: binding.
 
 ## 4 · Decisions taken at lock
 
-- First carrier pair: the **reverb return** (the built-in reverb is unused). First stage: **Ana 5-6**.
+- First carrier pair: ~~the reverb return~~ **ADAT B 7-8** (changed 2026-11-08 after the first live switch-on:
+  the reverb return carries the built-in reverb, so the chain through it was audibly reverberant). First
+  stage: **Ana 5-6**.
 - **Phones are out of scope**, as target and as stage. Room correction only; headphone correction is done by VSX.

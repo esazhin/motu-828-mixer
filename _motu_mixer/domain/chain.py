@@ -13,7 +13,8 @@ from .values import Address, BusIndex, Gain, InputIndex, MixCell, OutputSlot, So
 
 MAIN_BUS = 0
 STAGE_BUSES = (2, 4, 6, 8)                      # first bus of Ana 1-2, 3-4, 5-6, 7-8
-CARRIER_INPUTS = tuple(range(10, 44, 2))        # first input of each borrowable pair: never Mic/Line 1-10
+CARRIER_INPUTS = tuple(range(10, 42, 2))        # first input of each borrowable pair: never Mic/Line 1-10
+REVERB_RETURN = 42                              # never a carrier: its slots feed the reverb, so the mix would carry the effect (W8)
 MAIN_JACKS = tuple(topology.LOCAL_BASE + o for o in topology.LOCAL_OUTPUT_LINES[:2])   # slots 37, 39
 MAX_STAGES = len(STAGE_BUSES)
 _MIXER_INPUT_BASE = 76
@@ -80,8 +81,10 @@ def validate(stages) -> Refusal | None:
     for stage in stages:
         if stage.bus not in STAGE_BUSES:
             return refuse(f"{BUS_NAMES[stage.bus]} cannot be a stage: stages are the Ana pairs")
+        if stage.carrier in (REVERB_RETURN, REVERB_RETURN + 1):
+            return refuse(f"{INPUT_NAMES[stage.carrier]} cannot carry a stage: the built-in reverb is applied on its path")
         if stage.carrier not in CARRIER_INPUTS:
-            return refuse(f"{INPUT_NAMES[stage.carrier]} cannot carry a stage: carriers are stereo pairs from S/PDIF on")
+            return refuse(f"{INPUT_NAMES[stage.carrier]} cannot carry a stage: carriers are stereo pairs from S/PDIF to Computer 13-14")
     buses, carriers = [s.bus for s in stages], [s.carrier for s in stages]
     if len(set(buses)) < len(buses):
         return refuse("a bus pair can be a stage only once")

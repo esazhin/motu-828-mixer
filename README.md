@@ -30,10 +30,12 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
 - **Monitor chain** (`Chain` on the Main 1-2 master, or `/#chain`): room correction with more than three bands.
   The Main mix is carried through up to four Ana bus pairs before the Main jacks, each adding its own 3-band EQ,
   at one sample of latency per stage (measured). The chain window lists the stages, lets you add or remove them
-  (the default first stage is Ana 5-6 carried by the reverb return), and shows the combined EQ of every stage on
-  one graph. Off hands every borrowed bus and input back to the hardware. See
-  [docs/monitor-chain.md](docs/monitor-chain.md).
-- Double-click a fader or master to set 0 dB, or a pan to centre it.
+  (the default first stage is Ana 5-6 carried by ADAT B 7-8), and shows the combined EQ of every stage on one
+  graph. Save the chain and the EQ of every stage as a named preset (per browser); loading one writes the EQ back
+  and switches the chain on, and the Main master's `Chain` button names the preset while the unit still matches it.
+  Off hands every borrowed bus and input back to the hardware. The reverb return is never borrowed: the built-in
+  reverb is applied on its path. See [docs/monitor-chain.md](docs/monitor-chain.md).
+- Double-click a fader or master to set 0 dB, a pan to centre it, or an EQ point to zero its band.
 - Any browser on your network; no login, no build step.
 
 ## Safety

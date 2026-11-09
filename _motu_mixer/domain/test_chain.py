@@ -13,7 +13,7 @@ LIVE_SLOTS = {   # the unit's mixer-input feeds and Main jacks on 2026-11-08
     **{88 + k: code for k, code in enumerate((60, 61, 62, 63, 68, 69, 70, 71, 64, 65, 66, 67, 72, 73, 74, 75))},
     **{104 + k: k for k in range(14)}, 118: 90, 119: 91, 37: 76, 39: 77,
 }
-REVERB_RETURN, ANA_5_6, ANA_7_8, COMPUTER_13_14 = 42, 6, 8, 40
+ADAT_B_7_8, REVERB_RETURN, ANA_5_6, ANA_7_8, COMPUTER_13_14 = 26, 42, 6, 8, 40
 
 
 def unit(patch=(), faders=(), mutes=(), links=(), bus_links=()):
@@ -35,8 +35,8 @@ def unit(patch=(), faders=(), mutes=(), links=(), bus_links=()):
 
 
 def one_stage_on():
-    """Main → reverb return → Ana 5-6 → Main jacks, as plan_on builds it."""
-    return unit(patch={118: 76, 119: 77, 37: 82, 39: 83}, faders=[(6, 42)], links=[42], bus_links=[6])
+    """Main → ADAT B 7-8 → Ana 5-6 → Main jacks, as plan_on builds it."""
+    return unit(patch={102: 76, 103: 77, 37: 82, 39: 83}, faders=[(6, 26)], links=[26], bus_links=[6])
 
 
 def test_every_mixer_input_slot_and_the_main_jacks_have_the_unit_s_native_source():
@@ -50,17 +50,18 @@ def test_every_mixer_input_slot_and_the_main_jacks_have_the_unit_s_native_source
         raise AssertionError(bad)
 
 
-def test_a_stage_is_an_ana_pair_and_a_carrier_a_pair_from_s_pdif_on_each_used_once():
-    assert chain.validate((Stage(ANA_5_6, REVERB_RETURN),)) is None
-    assert chain.validate(tuple(Stage(b, c) for b, c in ((2, 10), (4, 12), (6, 40), (8, 42)))) is None
+def test_a_stage_is_an_ana_pair_and_a_carrier_a_pair_from_s_pdif_to_computer_each_used_once():
+    assert chain.validate((Stage(ANA_5_6, ADAT_B_7_8),)) is None
+    assert chain.validate(tuple(Stage(b, c) for b, c in ((2, 10), (4, 12), (6, 40), (8, 38)))) is None
     for stages, why in (
         ((), "at least one"),
         ((Stage(0, 42),), "Main 1 cannot be a stage"),
         ((Stage(10, 42),), "Phones 1 cannot be a stage"),
         ((Stage(6, 0),), "Mic 1 cannot carry"),
-        ((Stage(6, 43),), "cannot carry"),                      # the second input of a pair
-        ((Stage(6, 42), Stage(6, 40)), "only once"),
-        ((Stage(6, 42), Stage(8, 42)), "only one stage"),
+        ((Stage(6, 41),), "cannot carry"),                      # the second input of a pair
+        ((Stage(6, REVERB_RETURN),), "reverb is applied"),      # W8: the reverb sits on the return's path
+        ((Stage(6, 26), Stage(6, 40)), "only once"),
+        ((Stage(6, 26), Stage(8, 26)), "only one stage"),
         (tuple(Stage(b, 10 + 2 * k) for k, b in enumerate((2, 4, 6, 8, 2))), "at most 4"),
     ):
         refusal = chain.validate(stages)
@@ -69,57 +70,57 @@ def test_a_stage_is_an_ana_pair_and_a_carrier_a_pair_from_s_pdif_on_each_used_on
 
 def test_the_native_unit_has_no_chain_and_a_built_one_is_recognised_from_the_state_alone():
     assert recognise(unit()) == ChainState(False, ())
-    assert recognise(one_stage_on()) == ChainState(True, (Stage(ANA_5_6, REVERB_RETURN),))
-    two = unit(patch={118: 76, 119: 77, 37: 84, 39: 85, 116: 82, 117: 83},
-               faders=[(6, 42), (8, 40)], links=[42, 40], bus_links=[6, 8])
-    assert recognise(two) == ChainState(True, (Stage(ANA_5_6, REVERB_RETURN), Stage(ANA_7_8, COMPUTER_13_14)))
+    assert recognise(one_stage_on()) == ChainState(True, (Stage(ANA_5_6, ADAT_B_7_8),))
+    two = unit(patch={102: 76, 103: 77, 37: 84, 39: 85, 116: 82, 117: 83},
+               faders=[(6, 26), (8, 40)], links=[26, 40], bus_links=[6, 8])
+    assert recognise(two) == ChainState(True, (Stage(ANA_5_6, ADAT_B_7_8), Stage(ANA_7_8, COMPUTER_13_14)))
     # the jacks fed by a bus with no carrier behind it, or a carrier that is silent, is not a chain
     assert recognise(unit(patch={37: 82, 39: 83})) == ChainState(False, ())
-    assert recognise(unit(patch={118: 76, 119: 77, 37: 82, 39: 83})) == ChainState(False, ())
-    assert recognise(unit(patch={118: 76, 119: 77, 37: 82, 39: 83}, faders=[(6, 42)], mutes=[(6, 42)])) == ChainState(False, ())
+    assert recognise(unit(patch={102: 76, 103: 77, 37: 82, 39: 83})) == ChainState(False, ())
+    assert recognise(unit(patch={102: 76, 103: 77, 37: 82, 39: 83}, faders=[(6, 26)], mutes=[(6, 26)])) == ChainState(False, ())
     # a state without the patch table yet
     assert recognise(MixerState()) == ChainState(False, ())
 
 
 def test_plan_on_orders_links_silencing_patches_levels_and_the_jacks_last():
-    state = unit(faders=[(0, 42), (12, 43)])        # the reverb return is live on Main and on Phones 2 L today
-    writes = plan_on((Stage(ANA_5_6, REVERB_RETURN),), state)
+    state = unit(faders=[(0, 26), (12, 27)])        # ADAT B 7-8 is live on Main and on Phones 2 L today
+    writes = plan_on((Stage(ANA_5_6, ADAT_B_7_8),), state)
     assert writes == (
         Write(Address(P.BUS_LINK, 6), True),
-        Write(Address(P.INPUT_LINK, 42), True),
-        Write(Address(P.MIX_FADER, 0 * 44 + 42), Gain(0.0)),       # silent on Main before Main is patched into it
-        Write(Address(P.MIX_FADER, 12 * 44 + 43), Gain(0.0)),
-        Write(Address(P.PATCH, 118), Source(76)),
-        Write(Address(P.PATCH, 119), Source(77)),
-        Write(Address(P.MIX_FADER, 6 * 44 + 42), Gain(1.0)),       # unity on its stage
+        Write(Address(P.INPUT_LINK, 26), True),
+        Write(Address(P.MIX_FADER, 0 * 44 + 26), Gain(0.0)),       # silent on Main before Main is patched into it
+        Write(Address(P.MIX_FADER, 12 * 44 + 27), Gain(0.0)),
+        Write(Address(P.PATCH, 102), Source(76)),
+        Write(Address(P.PATCH, 103), Source(77)),
+        Write(Address(P.MIX_FADER, 6 * 44 + 26), Gain(1.0)),       # unity on its stage
         Write(Address(P.PATCH, 37), Source(82)),                   # the jacks last
         Write(Address(P.PATCH, 39), Source(83)),
     )
 
 
 def test_plan_on_writes_only_what_differs_and_chains_stage_to_stage():
-    state = unit(links=[42, 40], bus_links=[6, 8])
-    writes = plan_on((Stage(ANA_5_6, REVERB_RETURN), Stage(ANA_7_8, COMPUTER_13_14)), state)
+    state = unit(links=[26, 40], bus_links=[6, 8])
+    writes = plan_on((Stage(ANA_5_6, ADAT_B_7_8), Stage(ANA_7_8, COMPUTER_13_14)), state)
     assert writes == (
-        Write(Address(P.PATCH, 118), Source(76)), Write(Address(P.PATCH, 119), Source(77)),
+        Write(Address(P.PATCH, 102), Source(76)), Write(Address(P.PATCH, 103), Source(77)),
         Write(Address(P.PATCH, 116), Source(82)), Write(Address(P.PATCH, 117), Source(83)),   # stage 2 carries stage 1
-        Write(Address(P.MIX_FADER, 6 * 44 + 42), Gain(1.0)),
+        Write(Address(P.MIX_FADER, 6 * 44 + 26), Gain(1.0)),
         Write(Address(P.MIX_FADER, 8 * 44 + 40), Gain(1.0)),
         Write(Address(P.PATCH, 37), Source(84)), Write(Address(P.PATCH, 39), Source(85)),
     )
     # a muted carrier cell or a muted / lowered stage master is opened
-    muted = unit(links=[42], bus_links=[6], mutes=[(6, 42)])
+    muted = unit(links=[26], bus_links=[6], mutes=[(6, 26)])
     muted.apply(Report(Address(P.BUS_MUTE, 6), b"\x01"))
     muted.apply(Report(Address(P.BUS_FADER, 6), (1 << 23).to_bytes(4, "big")))
-    writes = plan_on((Stage(ANA_5_6, REVERB_RETURN),), muted)
-    assert Write(Address(P.MIX_MUTE, 6 * 44 + 42), False) in writes
+    writes = plan_on((Stage(ANA_5_6, ADAT_B_7_8),), muted)
+    assert Write(Address(P.MIX_MUTE, 6 * 44 + 26), False) in writes
     assert Write(Address(P.BUS_FADER, 6), Gain(1.0)) in writes and Write(Address(P.BUS_MUTE, 6), False) in writes
-    assert isinstance(plan_on((Stage(0, 42),), state), Refusal)
+    assert isinstance(plan_on((Stage(0, 26),), state), Refusal)
 
 
 def test_the_built_chain_is_what_recognise_reads_back_and_passes_the_feedback_guard():
-    state = unit(faders=[(0, 42)])
-    stages = (Stage(ANA_5_6, REVERB_RETURN), Stage(ANA_7_8, COMPUTER_13_14))
+    state = unit(faders=[(0, 26)])
+    stages = (Stage(ANA_5_6, ADAT_B_7_8), Stage(ANA_7_8, COMPUTER_13_14))
     writes = plan_on(stages, state)
     after = state.with_writes(writes)
     assert recognise(after) == ChainState(True, stages)
@@ -132,23 +133,23 @@ def test_plan_off_hands_everything_back_jacks_first_and_needs_a_chain_to_be_on()
     writes = plan_off(state)
     assert writes == (
         Write(Address(P.PATCH, 37), Source(76)), Write(Address(P.PATCH, 39), Source(77)),
-        Write(Address(P.MIX_FADER, 6 * 44 + 42), Gain(0.0)),
-        Write(Address(P.PATCH, 118), Source(90)), Write(Address(P.PATCH, 119), Source(91)),
+        Write(Address(P.MIX_FADER, 6 * 44 + 26), Gain(0.0)),
+        Write(Address(P.PATCH, 102), Source(74)), Write(Address(P.PATCH, 103), Source(75)),
     )
     after = state.with_writes(writes)
     assert recognise(after) == ChainState(False, ())
-    assert all(after.source(slot).code == native_source(slot) for slot in (37, 39, 118, 119))
+    assert all(after.source(slot).code == native_source(slot) for slot in (37, 39, 102, 103))
     refusal = plan_off(unit())
     assert isinstance(refusal, Refusal) and refusal.kind is RefusalKind.CHAIN
 
 
 def test_a_carrier_live_on_its_own_source_bus_is_a_cycle_the_guard_refuses_and_reports():
     before = one_stage_on()
-    raise_on_main = (Write(Address(P.MIX_FADER, 0 * 44 + 42), Gain(0.5)),)
+    raise_on_main = (Write(Address(P.MIX_FADER, 0 * 44 + 26), Gain(0.5)),)
     after = before.with_writes(raise_on_main)
     verdict = SpdifLoopGuard().check(before, after, raise_on_main)
     assert isinstance(verdict, Refusal) and verdict.kind is RefusalKind.LOOP
-    assert verdict.path.is_cycle and verdict.path.label() == "Main 1 → Main 1 mix → Reverb return L → Main 1"
+    assert verdict.path.is_cycle and verdict.path.label() == "Main 1 → Main 1 mix → ADAT B 7 → Main 1"
     paths = SpdifLoopGuard().paths(after)
     assert len(paths) == 1 and next(iter(paths)).is_cycle
     # the same cycle arriving as a unit report is shown, and an unrelated change is still accepted

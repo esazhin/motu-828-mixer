@@ -115,16 +115,43 @@ function gainValue(index, value) {
 // The monitor chain (docs/monitor-chain.md): Main → carrier → Ana stage → … → Main jacks, one 3-band EQ per stage.
 // The stages of a chain that is off are kept per browser so "on" rebuilds the same chain; the unit's state says what is on.
 const CHAIN_KEY = 'motu-mixer:chain';
-const DEFAULT_STAGE = { bus: 6, carrier: 42 };          // Ana 5-6 carried by the reverb return
+const DEFAULT_STAGE = { bus: 6, carrier: 26 };          // Ana 5-6 carried by ADAT B 7-8 (idle on this unit, proven by W7)
+const REVERB_RETURN = 42;                               // the default carrier until W8 showed the reverb applied on its path
 const STAGE_CLASSES = ['stage-0', 'stage-1', 'stage-2', 'stage-3', 'stage-4'];
+// Named presets: the stages and the output EQ of Main and of every stage, kept per browser; loading one writes the EQ
+// and switches the chain on. The name last saved or loaded is shown while the unit's chain and EQ still match it.
+const CHAIN_PRESETS_KEY = 'motu-mixer:chain-presets';
+const CHAIN_PRESET_KEY = 'motu-mixer:chain-preset';
+
+function validStages(parsed) {
+  return Array.isArray(parsed) && parsed.every((s) => Number.isInteger(s.bus) && Number.isInteger(s.carrier));
+}
 
 function loadChainDraft(storage) {
   try {
     const saved = storage ? storage.getItem(CHAIN_KEY) : null;
     const parsed = saved ? JSON.parse(saved) : null;
-    if (Array.isArray(parsed) && parsed.every((s) => Number.isInteger(s.bus) && Number.isInteger(s.carrier))) return parsed;
+    if (validStages(parsed)) {
+      // a draft saved while the reverb return was the default carrier moves to today's default
+      const moved = parsed.map((s) => (s.carrier === REVERB_RETURN ? { ...s, carrier: DEFAULT_STAGE.carrier } : s));
+      return moved.filter((s, k) => moved.findIndex((o) => o.carrier === s.carrier) === k);
+    }
   } catch { /* unreadable: start from the default */ }
   return [DEFAULT_STAGE];
+}
+
+function loadChainPresets(storage) {
+  try {
+    const parsed = JSON.parse((storage && storage.getItem(CHAIN_PRESETS_KEY)) || 'null');
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return Object.fromEntries(Object.entries(parsed).filter(([, v]) => v && validStages(v.stages)));
+    }
+  } catch { /* unreadable: no presets */ }
+  return {};
+}
+
+function loadChainPreset(storage) {
+  try { return (storage && storage.getItem(CHAIN_PRESET_KEY)) || null; } catch { return null; }
 }
 
 // Strip groups that fold away to save width; collapsed by default, remembered per browser.
@@ -173,6 +200,8 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
   let eqTarget = null;          // { kind: 'in' | 'out', slot }
   let chainOpen = false;
   let chainDraft = loadChainDraft(storage);
+  let chainPresets = loadChainPresets(storage);
+  let chainPreset = loadChainPreset(storage);     // the name shown, while the chain and EQ still match it
   const held = new Map();
 
   function enabled() {
@@ -246,6 +275,65 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
     try { storage?.setItem(CHAIN_KEY, JSON.stringify(chainDraft)); } catch { /* private mode: keep it for this page */ }
   }
 
+  function saveChainPresets() {
+    try {
+      storage?.setItem(CHAIN_PRESETS_KEY, JSON.stringify(chainPresets));
+      storage?.setItem(CHAIN_PRESET_KEY, chainPreset ?? '');
+    } catch { /* private mode: keep them for this page */ }
+  }
+
+  // ---- chain presets: the stages plus [mode, bypass, freq, gain, q] of every band of Main and of each stage ----
+  function eqSnapshot(stages) {
+    if (!server?.eq) return null;
+    return Object.fromEntries([0, ...stages.map((s) => s.bus)].map((slot) => [String(slot), eqBands('out', slot).map((b) => EQ_FIELDS.map((f) => b[f]))]));
+  }
+
+  function eqSame(field, a, b) {
+    if (a === null || a === undefined || b === null || b === undefined) return a == b;   // eslint-disable-line eqeqeq
+    return eqValue(field, a) === eqValue(field, b);
+  }
+
+  function sameStages(a, b) {
+    return a.length === b.length && a.every((s, k) => s.bus === b[k].bus && s.carrier === b[k].carrier);
+  }
+
+  function presetMatch(preset) {            // 'exact' | 'edited' | null
+    if (!preset) return null;
+    const stages = chainStages();
+    if (!sameStages(stages, preset.stages)) return 'edited';
+    const now = eqSnapshot(stages);
+    if (!now || !preset.eq) return 'exact';
+    const same = Object.entries(preset.eq).every(([slot, bands]) =>
+      bands.every((band, k) => band.every((v, i) => eqSame(EQ_FIELDS[i], v, now[slot]?.[k]?.[i]))));
+    return same ? 'exact' : 'edited';
+  }
+
+  function presetView() {
+    const match = presetMatch(chainPresets[chainPreset]);
+    return { names: Object.keys(chainPresets).sort(), name: match ? chainPreset : null, edited: match === 'edited' };
+  }
+
+  function loadPreset(name) {
+    const preset = chainPresets[name];
+    if (!preset || !server?.chain) return null;
+    const stages = preset.stages.map((s) => ({ bus: s.bus, carrier: s.carrier }));
+    chainDraft = stages;
+    saveChainDraft();
+    chainPreset = name;
+    saveChainPresets();
+    const actions = [];
+    if (server.eq) {
+      for (const [slot, bands] of Object.entries(preset.eq ?? {})) {
+        bands.forEach((band, k) => EQ_FIELDS.forEach((field, i) => {
+          const current = server.eq.output[field][Number(slot) * EQ.out.bands + k];
+          if (band[i] !== null && band[i] !== undefined && !eqSame(field, band[i], current)) actions.push(eqWrite('out', Number(slot), k, field, band[i]));
+        }));
+      }
+    }
+    if (!(server.chain.on && sameStages(server.chain.stages, stages))) actions.push(chainAction(true, stages));
+    return actions;
+  }
+
   function stageBands(slot, stage) {
     return eqBands('out', slot).map((b) => ({
       ...b,
@@ -293,6 +381,7 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       sections,
       curve: { freqs: EQ_FREQS, db: response(bands, EQ_FREQS) },
       bands,
+      preset: presetView(),
     };
   }
 
@@ -479,7 +568,7 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
         mute: { control: `master_mute:${bus}`, on: server.bus_master.mute[bus] === 1 },
         link: { control: `bus_link:${bus & ~1}`, on: server.links.buses[bus & ~1] === 1 },
         eq: eqButton('out', eqSlotForBus(bus, server.links.buses[bus & ~1] === 1)),
-        chain: bus === 0 && server.chain ? { control: 'chain', on: server.chain.on } : null,
+        chain: bus === 0 && server.chain ? { control: 'chain', on: server.chain.on, preset: server.chain.on ? presetView() : null } : null,
       },
       eq: eqView(),
       chain: chainView(),
@@ -597,6 +686,22 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       if (server.chain.on && enabled()) return stages.length ? chainAction(true, stages) : chainAction(false);
       return null;
     }
+    if (g.type === 'chain_save') {
+      const name = String(g.name ?? '').trim();
+      if (!name || !server?.chain) return null;
+      const stages = chainStages().map((s) => ({ bus: s.bus, carrier: s.carrier }));
+      chainPresets = { ...chainPresets, [name]: { stages, eq: eqSnapshot(stages) } };
+      chainPreset = name;
+      saveChainPresets();
+      return null;
+    }
+    if (g.type === 'chain_delete') {
+      if (!(g.name in chainPresets)) return null;
+      chainPresets = Object.fromEntries(Object.entries(chainPresets).filter(([k]) => k !== g.name));
+      if (chainPreset === g.name) chainPreset = null;
+      saveChainPresets();
+      return null;
+    }
     if (g.type === 'cancel_confirm') {
       pending = null;
       return null;
@@ -617,10 +722,16 @@ export function createMixerClient({ send, render, renderMeters = null, storage =
       if (!chainDraft.length) { chainDraft = [DEFAULT_STAGE]; saveChainDraft(); }
       return chainAction(true, chainDraft);
     }
+    if (g.type === 'chain_load') return loadPreset(g.name);
     if (kind === 'pan' && !panEnabled(numbers[0], numbers[1])) return null;
     if (g.type === 'eq_set' && kind === 'eqb' && server?.eq) {
       const [eqKind, slot, band, field] = rest;
       return eqWrite(eqKind, Number(slot), Number(band), field, g.value);
+    }
+    if (g.type === 'eq_zero' && kind === 'eqpt' && server?.eq) {
+      const [eqKind, slot, band] = [rest[0], Number(rest[1]), Number(rest[2])];
+      if (eqBands(eqKind, slot)[band].mode === 3) return null;        // a high-pass has no gain to zero
+      return eqWrite(eqKind, slot, band, 'gain', 0);
     }
     if (g.type === 'eq_drag' && kind === 'eqpt' && server?.eq) {
       const [eqKind, slot, band] = [rest[0], Number(rest[1]), Number(rest[2])];

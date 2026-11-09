@@ -14,7 +14,8 @@ function chain(on) {
   const stage = [band(6, 0, 1, 1, 60, -4), band(6, 1, 1, 0, 1000, 0), band(6, 2, 1, 0, 8000, 0)];
   return {
     on,
-    stages: [{ index: 1, bus: 6, carrier: 42, label: 'Ana 5-6', carrierLabel: 'Reverb return L-R', slot: 6, eq: 'eq:out:6', remove: 'chainrm:0', cls: 'stage-1' }],
+    stages: [{ index: 1, bus: 6, carrier: 26, label: 'Ana 5-6', carrierLabel: 'ADAT B 7-8', slot: 6, eq: 'eq:out:6', remove: 'chainrm:0', cls: 'stage-1' }],
+    preset: { names: ['Mixing', 'Listening'], name: on ? 'Mixing' : null, edited: false },
     canAdd: true,
     stageOptions: [{ value: 2, label: 'Ana 1-2 (feeds Line out 3-4)' }, { value: 8, label: 'Ana 7-8' }],
     carrierOptions: [{ value: 40, label: 'Computer 13-14' }],
@@ -32,7 +33,7 @@ function view({ open = true, on = false, mode = 'mixer' } = {}) {
     master: {
       label: 'Main 1-2', fader: { control: 'master:0', position: 0.83, text: '0.0 dB' },
       mute: { control: 'master_mute:0', on: false }, link: { control: 'bus_link:0', on: true },
-      eq: { control: 'eq:out:0', on: true }, chain: { control: 'chain', on },
+      eq: { control: 'eq:out:0', on: true }, chain: { control: 'chain', on, preset: on ? { names: ['Mixing'], name: 'Mixing', edited: true } : null },
     },
     chain: open ? chain(on) : null,
   };
@@ -62,8 +63,12 @@ test('the Main master has a Chain button that opens the chain window', () => {
   const button = find(document, 'chain');
   assert.equal(button.getAttribute('class'), 'chain-open');
   assert.equal(document.body.getAttribute('data-chain'), 'closed');
+  assert.equal(button.textContent, 'Chain');
   fire(button, 'click');
   assert.deepEqual(gestures, [{ type: 'open_chain' }]);
+  const lit = find(start({ open: false, on: true }).document, 'chain');
+  assert.equal(lit.textContent, 'Chain · Mixing*', 'on: the engaged preset, starred when edited since');
+  assert.equal(lit.getAttribute('class'), 'chain-open on');
 });
 
 test('the chain window shows the switch, each stage with its carrier, the picker and the combined EQ by stage', () => {
@@ -76,8 +81,12 @@ test('the chain window shows the switch, each stage with its carrier, the picker
   const stages = byClass(panel, 'chain-stage ');
   assert.deepEqual(stages.map((s) => s.getAttribute('class')), ['chain-stage stage-0', 'chain-stage stage-1', 'chain-stage chain-jacks']);
   assert.match(stages[1].textContent, /1 · Ana 5-6/);
-  assert.match(stages[1].textContent, /carried by Reverb return L-R/);
+  assert.match(stages[1].textContent, /carried by ADAT B 7-8/);
   assert.match(stages[2].textContent, /fed by stage 1/);
+  assert.match(panel.textContent, /Preset · Mixing/);
+  assert.equal(find(document, 'chain-preset-pick').children.length, 3, 'a placeholder and the two saved names');
+  assert.equal(find(document, 'chain-preset-pick').value, 'Mixing', 'the engaged preset is picked');
+  assert.equal(find(document, 'chain-preset-name').value, 'Mixing');
   assert.equal(find(document, 'eq:out:6').getAttribute('data-gesture'), 'open_eq');
   assert.equal(find(document, 'chainrm:0').getAttribute('data-gesture'), 'chain_remove');
   assert.equal(find(document, 'chain-add-bus').tagName, 'SELECT');
@@ -98,13 +107,35 @@ test('the window\'s controls give their gestures: power, remove, add with the pi
   find(document, 'chain-add-bus').value = '8';
   find(document, 'chain-add-carrier').value = '40';
   fire(find(document, 'chain-add'), 'click');
+  fire(find(document, 'chain-preset-load'), 'click');            // nothing picked yet: no gesture
+  find(document, 'chain-preset-pick').value = 'Listening';
+  fire(find(document, 'chain-preset-load'), 'click');
+  find(document, 'chain-preset-name').value = ' Room ';
+  fire(find(document, 'chain-preset-save'), 'click');
+  assert.equal(find(document, 'chain-preset-name').value, ' Room ', 'what was typed survives the redraw');
+  assert.equal(find(document, 'chain-preset-pick').value, 'Listening', 'and so does the pick');
+  fire(find(document, 'chain-preset-delete'), 'click');
   fire(find(document, 'chain-close'), 'click');
   assert.deepEqual(gestures, [
     { type: 'chain_power', on: true },
     { type: 'chain_remove', index: 0 },
     { type: 'chain_add', bus: 8, carrier: 40 },
+    { type: 'chain_load', name: 'Listening' },
+    { type: 'chain_save', name: 'Room' },
+    { type: 'chain_delete', name: 'Listening' },
     { type: 'close_chain' },
   ]);
+});
+
+test('a redraw keeps the chain window where it was scrolled, and a double-click on a point zeroes its band', () => {
+  const { document, gestures } = start({ on: true });
+  const host = document.getElementById('chain');
+  host.children[0].scrollTop = 240;
+  fire(find(document, 'eqb:out:6:0:bypass'), 'click');
+  assert.equal(host.children[0].scrollTop, 240, 'the new panel took over the scroll position');
+  gestures.length = 0;
+  fire(find(document, 'eqpt:out:6:0'), 'dblclick');
+  assert.deepEqual(gestures, [{ type: 'eq_zero', control: 'eqpt:out:6:0' }]);
 });
 
 test('a stage band in the combined view edits that stage\'s own property', () => {

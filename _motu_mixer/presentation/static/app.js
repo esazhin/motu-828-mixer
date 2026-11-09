@@ -44,6 +44,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     return node;
   })();
   let chainPicks = null;        // the bus and carrier selects of the open chain window
+  let chainPresetRefs = null;   // the preset picker and name box of the open chain window
   let inputsShown = false;
   let refreshing = false;
 
@@ -158,10 +159,14 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
       buttons.append(element('div', 'button-spacer'));
     }
     if (spec.chain) {
-      const chain = element('button', spec.chain.on ? 'chain-open on' : 'chain-open', 'Chain');
+      const preset = spec.chain.preset;
+      const text = preset && preset.name ? `Chain · ${preset.name}${preset.edited ? '*' : ''}` : 'Chain';
+      const chain = element('button', spec.chain.on ? 'chain-open on' : 'chain-open', text);
       chain.setAttribute('data-control', spec.chain.control);
       chain.setAttribute('data-gesture', 'open_chain');
-      chain.setAttribute('title', spec.chain.on ? 'Monitor chain is on: open the chain window' : 'Open the monitor chain window');
+      chain.setAttribute('title', spec.chain.on
+        ? `Monitor chain is on${preset && preset.name ? ` with the ${preset.name} preset${preset.edited ? ' (edited)' : ''}` : ''}: open the chain window`
+        : 'Open the monitor chain window');
       buttons.append(chain);
     }
     buttons.append(button(spec.mute, 'toggle', 'M', enabled, 'mute'));
@@ -389,6 +394,35 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     return select;
   }
 
+  // Presets: a picker of the saved names with Load and Delete, a name box with Save, and the name the unit matches now.
+  function presetRow(preset, enabled) {
+    const row = element('div', 'chain-presets');
+    const shown = preset.name ? `Preset · ${preset.name}${preset.edited ? ' (edited)' : ''}` : 'No preset';
+    row.append(element('span', preset.name ? 'chain-preset-current' : 'chain-preset-current none', shown));
+    const pick = selectOf('chain-preset-pick', preset.names.map((n) => ({ value: n, label: n })), 'saved presets…');
+    const previous = chainPresetRefs;
+    pick.value = previous && preset.names.includes(previous.pick.value) ? previous.pick.value : (preset.name ?? '');
+    const load = element('button', 'chain-preset-load', 'Load');
+    load.setAttribute('data-control', 'chain-preset-load');
+    load.setAttribute('data-gesture', 'chain_load');
+    const remove = element('button', 'chain-preset-delete', 'Delete');
+    remove.setAttribute('data-control', 'chain-preset-delete');
+    remove.setAttribute('data-gesture', 'chain_delete');
+    const name = document.createElement('input');
+    name.setAttribute('type', 'text');
+    name.setAttribute('placeholder', 'preset name');
+    name.setAttribute('data-control', 'chain-preset-name');
+    const typed = previous && previous.name.value !== (previous.shown ?? '') ? previous.name.value : null;
+    name.value = typed ?? preset.name ?? '';
+    const save = element('button', 'chain-preset-save', 'Save');
+    save.setAttribute('data-control', 'chain-preset-save');
+    save.setAttribute('data-gesture', 'chain_save');
+    if (!enabled) load.setAttribute('disabled', '');
+    chainPresetRefs = { pick, name, shown: preset.name };
+    row.append(pick, load, remove, name, save);
+    return row;
+  }
+
   function chainPanel(chain, enabled) {
     const panel = element('div', 'eq-panel chain-panel');
     const head = element('div', 'eq-head');
@@ -424,11 +458,12 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     jacks.append(element('span', 'chain-stage-name', 'Main out jacks'),
       element('span', 'chain-stage-note', chain.on ? `fed by stage ${chain.stages.length}` : 'fed by the Main mix (hardware)'));
     list.append(jacks);
-    panel.append(head, list);
+    panel.append(head, list, presetRow(chain.preset, enabled));
     if (chain.canAdd) {
       const add = element('div', 'chain-add');
       const bus = selectOf('chain-add-bus', chain.stageOptions, 'stage bus pair…');
       const carrier = selectOf('chain-add-carrier', chain.carrierOptions, 'carried by…');
+      if (chainPicks) { bus.value = chainPicks.bus.value; carrier.value = chainPicks.carrier.value; }
       chainPicks = { bus, carrier };
       const button = element('button', 'chain-add-button', 'Add stage');
       button.setAttribute('data-control', 'chain-add');
@@ -480,14 +515,25 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     if (!view.confirm) confirmRemember = null;
     confirmHost.replaceChildren(...(view.confirm ? [confirmPanel(view.confirm)] : []));
     document.body.setAttribute('data-eq', view.eq ? 'open' : 'closed');
-    eqHost.replaceChildren(...(view.eq ? [eqPanel(view.eq, view.controlsEnabled)] : []));
+    replacePanel(eqHost, view.eq ? eqPanel(view.eq, view.controlsEnabled) : null);
     document.body.setAttribute('data-chain', view.chain ? 'open' : 'closed');
-    if (!view.chain) chainPicks = null;
-    chainHost.replaceChildren(...(view.chain ? [chainPanel(view.chain, view.controlsEnabled)] : []));
+    if (!view.chain) { chainPicks = null; chainPresetRefs = null; }
+    replacePanel(chainHost, view.chain ? chainPanel(view.chain, view.controlsEnabled) : null);
     const showingInputs = view.mode === 'inputs';
     if (showingInputs && !inputsShown) { inputsShown = true; if (!refreshing) { refreshing = true; refreshInputs(); } }
     if (!showingInputs) inputsShown = false;
     if (drag && !drag.element.hasPointerCapture(drag.pointerId)) drag.element.setPointerCapture(drag.pointerId);
+  }
+
+  // The overlay's panel is the scroll container: a redraw fills the same node, so it stays where it was scrolled.
+  function replacePanel(host, panel) {
+    const current = host.children[0];
+    if (!panel || !current) {
+      host.replaceChildren(...(panel ? [panel] : []));
+      return;
+    }
+    current.setAttribute('class', panel.getAttribute('class'));
+    current.replaceChildren(...panel.childNodes);
   }
 
   function controlOf(node) {
@@ -576,6 +622,21 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     }
     if (gesture === 'cancel_confirm') client.gesture({ type: 'cancel_confirm' });
     if (gesture === 'eq_toggle') client.gesture({ type: 'eq_set', control, value: node.getAttribute('data-on') === '1' });
+    if (gesture === 'chain_load' && chainPresetRefs && chainPresetRefs.pick.value !== '') client.gesture({ type: 'chain_load', name: chainPresetRefs.pick.value });
+    if (gesture === 'chain_delete' && chainPresetRefs && chainPresetRefs.pick.value !== '') client.gesture({ type: 'chain_delete', name: chainPresetRefs.pick.value });
+    if (gesture === 'chain_save' && chainPresetRefs) {
+      const name = chainPresetRefs.name.value.trim() || chainPresetRefs.pick.value;
+      if (name) client.gesture({ type: 'chain_save', name });
+    }
+  });
+
+  // a double-click on an EQ point zeroes that band's gain
+  document.addEventListener('dblclick', (event) => {
+    const node = controlOf(event.target);
+    if (node && node.getAttribute('data-gesture') === 'drag-eq') {
+      event.preventDefault();
+      client.gesture({ type: 'eq_zero', control: node.getAttribute('data-control') });
+    }
   });
 
   document.addEventListener('change', (event) => {
