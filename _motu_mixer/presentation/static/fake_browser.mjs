@@ -36,6 +36,8 @@ class FakeNode {
   setAttribute(name, value) { this.attributes.set(name, String(value)); }
   getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
   addEventListener(type, fn) { (this.listeners[type] ??= []).push(fn); }
+  focus() { this.ownerDocument.activeElement = this; }
+  blur() { if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body; }
   setPointerCapture(id) { this.captured.add(id); }
   hasPointerCapture(id) { return this.captured.has(id); }
   getBoundingClientRect() { return { left: 0, top: 0, width: 40, height: 200 }; }
@@ -48,6 +50,7 @@ export function fakeDocument() {
   document.createElementNS = (_ns, tag) => new FakeNode(document, tag);
   document.createTextNode = (text) => new FakeNode(document, '#text', text);
   document.body = document.appendChild(document.createElement('body'));
+  document.activeElement = document.body;
   for (const id of ['status', 'tabs', 'strips', 'routing']) {
     document.body.appendChild(document.createElement('div')).setAttribute('id', id);
   }

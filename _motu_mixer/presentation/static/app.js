@@ -160,8 +160,7 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
     }
     if (spec.chain) {
       const preset = spec.chain.preset;
-      const text = preset && preset.name ? `Chain · ${preset.name}${preset.edited ? '*' : ''}` : 'Chain';
-      const chain = element('button', spec.chain.on ? 'chain-open on' : 'chain-open', text);
+      const chain = element('button', spec.chain.on ? 'chain-open on' : 'chain-open', 'Chain');
       chain.setAttribute('data-control', spec.chain.control);
       chain.setAttribute('data-gesture', 'open_chain');
       chain.setAttribute('title', spec.chain.on
@@ -526,14 +525,35 @@ export function startApp({ document, WebSocket, setTimeout, location, createClie
   }
 
   // The overlay's panel is the scroll container: a redraw fills the same node, so it stays where it was scrolled.
+  // The clicked button has focus, and Chrome scrolls the panel when a focused child is removed, so it is blurred
+  // first and its successor (the same control in the new content) focused again without scrolling.
   function replacePanel(host, panel) {
     const current = host.children[0];
     if (!panel || !current) {
       host.replaceChildren(...(panel ? [panel] : []));
       return;
     }
+    const active = document.activeElement;
+    const focused = active && isWithin(active, current) ? active.getAttribute('data-control') : null;
+    if (focused && typeof active.blur === 'function') active.blur();
     current.setAttribute('class', panel.getAttribute('class'));
     current.replaceChildren(...panel.childNodes);
+    const successor = focused === null ? null : findControl(current, focused);
+    if (successor && typeof successor.focus === 'function') successor.focus({ preventScroll: true });
+  }
+
+  function isWithin(node, root) {
+    for (let n = node; n; n = n.parentNode) if (n === root) return true;
+    return false;
+  }
+
+  function findControl(root, control) {
+    for (const child of root.children) {
+      if (child.getAttribute('data-control') === control) return child;
+      const inner = findControl(child, control);
+      if (inner) return inner;
+    }
+    return null;
   }
 
   function controlOf(node) {

@@ -67,7 +67,8 @@ test('the Main master has a Chain button that opens the chain window', () => {
   fire(button, 'click');
   assert.deepEqual(gestures, [{ type: 'open_chain' }]);
   const lit = find(start({ open: false, on: true }).document, 'chain');
-  assert.equal(lit.textContent, 'Chain · Mixing*', 'on: the engaged preset, starred when edited since');
+  assert.equal(lit.textContent, 'Chain', 'the engaged preset goes in the tooltip, not the label');
+  assert.equal(lit.getAttribute('title'), 'Monitor chain is on with the Mixing preset (edited): open the chain window');
   assert.equal(lit.getAttribute('class'), 'chain-open on');
 });
 
@@ -132,9 +133,14 @@ test('a redraw keeps the chain window where it was scrolled, and a second press 
   const host = document.getElementById('chain');
   const panel = host.children[0];
   panel.scrollTop = 240;
-  fire(find(document, 'eqb:out:6:0:bypass'), 'click');
+  const toggle = find(document, 'eqb:out:6:0:bypass');
+  toggle.focus();                                   // a real click leaves the button focused
+  fire(toggle, 'click');
   assert.equal(host.children[0], panel, 'the same panel node is refilled, so the browser keeps its scroll position');
   assert.equal(panel.scrollTop, 240);
+  assert.notEqual(document.activeElement, toggle, 'the removed button was blurred before the refill (Chrome scrolls otherwise)');
+  assert.equal(document.activeElement, find(document, 'eqb:out:6:0:bypass'), 'and its successor has the focus');
+  assert.notEqual(document.activeElement, document.body);
   gestures.length = 0;
   // the graph captures the pointer during a drag, so this is detected from the presses, not the browser's dblclick
   fire(find(document, 'eqpt:out:6:0'), 'pointerdown', { timeStamp: 1000 });
