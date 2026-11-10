@@ -63,26 +63,44 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
 ## Requirements
 
 - Linux with ALSA; the 828 connected by USB. It is class-compliant, so no driver is needed.
-- Python ≥ 3.14, [`uv`](https://docs.astral.sh/uv/), `amidi` (from alsa-utils) and `libasound`.
+- [`uv`](https://docs.astral.sh/uv/) (it fetches Python 3.14 itself if your system has none), `amidi` (from
+  alsa-utils) and `libasound`.
 - Node.js only to run the page's tests.
 
 ## Install
 
 ```sh
 git clone https://github.com/esazhin/motu-828-mixer.git && cd motu-828-mixer
-uv venv .venv
-uv pip install -e '.[dev]'
-source .venv/bin/activate                 # fish: source .venv/bin/activate.fish
-cp config.local.example config.local      # optional: your machine's settings (git-ignored)
+./install.sh --run
 ```
 
-Your user needs access to `/dev/snd/midiC*`; desktop sessions grant it through logind. Check that `amidi -l` lists
-a port named `828 COM`.
+`install.sh` creates the Python 3.14 environment, installs the service, writes `config.local` from the example,
+checks that `amidi` sees the 828's `828 COM` port and that you may open it, then (with `--run`) starts the service.
+It is safe to run again; every step is skipped when already done, and nothing needs root. Options:
+
+| flag | does |
+|---|---|
+| `--run` | start the service in this terminal after installing |
+| `--systemd` | install and enable the systemd user unit: starts now and with every login |
+| `--launcher` | add *MOTU 828 Mixer* to the application menu / dock (starts the service if needed, opens the page) |
+| `--all` | `--systemd --launcher` |
+| `--dev` | also install the test dependencies |
+
+Without `uv` the script offers to install it for your user. If `amidi` is missing it names the package for your
+distribution. If your user cannot open `/dev/snd/midiC*` (desktop sessions normally can, through logind) it tells
+you to join the `audio` group.
+
+By hand, the same thing is:
+
+```sh
+uv venv --python 3.14 .venv && uv pip install --python .venv/bin/python -e '.[dev]'
+cp config.local.example config.local      # optional: your machine's settings (git-ignored)
+```
 
 ## Run
 
 ```sh
-python -m _motu_mixer
+.venv/bin/python -m _motu_mixer           # or: ./install.sh --run
 ```
 
 Open `http://<this-machine>:8280` from any device on the LAN (or `http://localhost:8280`). The status line reads
@@ -113,7 +131,7 @@ exit with a non-zero code.
 
 ## Launcher, desktop icon and dock
 
-`scripts/motu-mixer-start` starts the service if it isn't running (through the systemd user unit if installed,
+`./install.sh --launcher` installs the two pieces below. `scripts/motu-mixer-start` starts the service if it isn't running (through the systemd user unit if installed,
 otherwise in the background, logging to `~/.local/state/motu-mixer/`), waits for the unit to sync, then opens the
 browser. If something goes wrong it shows a desktop notification.
 
@@ -124,6 +142,8 @@ cp deploy/motu-mixer.desktop ~/Desktop/ && chmod +x ~/Desktop/motu-mixer.desktop
 ```
 
 ## Start with your login (systemd user unit)
+
+`./install.sh --systemd` does this:
 
 ```sh
 mkdir -p ~/.config/systemd/user
