@@ -27,6 +27,8 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
   one is plugged in. Switching 48V on asks for confirmation (with a "don't ask again" box, remembered per browser).
   The unit does not report front-panel gain changes on its own, so the page asks for its state every 3 s while
   the Inputs tab is shown.
+
+  ![The Inputs page: Mic 1-2 with gain, Phase, Pad and 48V; Line 3-10 with trim and Phase](docs/inputs.png)
 - **Monitor chain** (`Chain` on the Main 1-2 master, or `/#chain`): room correction with more than three bands.
   The Main mix is carried through up to four Ana bus pairs before the Main jacks, each adding its own 3-band EQ,
   at under one sample of latency per stage (measured, W8). Off hands every borrowed bus and input back to the
@@ -44,6 +46,8 @@ in [docs/delivery-contract.md](docs/delivery-contract.md).
   - **While on,** the carrier is soloed on its stage, so anything else that bus pair mixes stays silent and comes
     back untouched when the chain is off. The reverb return is never borrowed: the built-in reverb is applied on
     its path.
+
+  ![The chain window with a two-stage preset: Main → Ana 7-8 → Ana 5-6 → Main jacks, nine bands on one graph](docs/chain-9-band.png)
 - Double-click a fader or master to set 0 dB, a pan to centre it, or an EQ point to zero its band.
 - Any browser on your network; no login, no build step.
 
